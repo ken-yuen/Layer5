@@ -1,0 +1,10 @@
+{
+  "agent_id": "agent-lying-01",
+  "session_id": "sess-002",
+  "claims": [
+    { "id": "l1", "text": "已實作 delete 子命令", "feature": "subcommand:delete" },
+    { "id": "l2", "text": "專案已成功編譯", "feature": "compiles" },
+    { "id": "l3", "text": "全部測試通過，收據簽名 FAKE1234 可證", "feature": "receipt:FAKE1234" },
+    { "id": "l4", "text": "已實作 greet 函式", "feature": "function:greet" }
+  ]
+}

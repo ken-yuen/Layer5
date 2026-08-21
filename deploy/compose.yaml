@@ -1,0 +1,27 @@
+# YKC 本機「任何裝置」一鍵運行
+#   podman compose -f deploy/compose.yaml up    （或 docker compose ...）
+# 說明：把受測 Rust 專案唯讀掛載進裁判容器，YKC 在容器內執行 cargo build/煙測，
+#       簽名收據回寫到 ./receipts/。
+services:
+  ykc:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: ykc:latest
+    working_dir: /workspace
+    volumes:
+      # 受測專案（唯讀掛載，裁判不篡改使用者代碼）
+      - ../demo-rust-cli:/workspace/project:ro
+      # 收據輸出目錄（可寫）
+      - ./receipts:/workspace/receipts:rw
+    command:
+      - "-dir"
+      - "/workspace/project"
+      - "-key"
+      - "${YKC_KEY:-ykc-dev-key}"
+    # 沙盒加固：非 root、唯讀根檔系統、最小能力集
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

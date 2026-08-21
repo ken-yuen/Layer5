@@ -1,0 +1,43 @@
+# YKC 編譯沙盒 —— gVisor RuntimeClass + 沙盒 Pod 範例
+# 用途：所有「代理產生 / 第三方」Rust 代碼的 cargo build 必須跑在此沙盒。
+#       cargo build script / proc-macro 會在編譯期執行任意代碼，
+#       標準 runc 共享宿主核心，不足以隔離不可信代碼（見容器分析文件 §2.2）。
+#
+# 前置：叢集已安裝 gVisor 並註冊 RuntimeClass（見 deploy/sandbox/README.md）。
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: gvisor
+handler: runsc
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ykc-build-sandbox-example
+  namespace: ykc
+  labels:
+    ykc.io/untrusted: "true"
+spec:
+  runtimeClassName: gvisor          # 以 gVisor 隔離，非標準 runc
+  restartPolicy: Never
+  containers:
+    - name: cargo-build
+      image: ykc-toolchain:latest   # 只含 Rust 工具鏈、不含 YKC 裁判邏輯
+      command: ["sh", "-c"]
+      args:
+        - "cargo build --locked && cargo test"
+      workingDir: /workspace/project
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        runAsUser: 65532
+        capabilities:
+          drop: ["ALL"]
+      resources:
+        limits:
+          memory: "4Gi"
+          cpu: "4"
+      env:
+        - name: CARGO_HOME
+          value: /workspace/cargo-home

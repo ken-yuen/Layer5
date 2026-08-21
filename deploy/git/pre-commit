@@ -1,0 +1,19 @@
+#!/bin/sh
+# YKC 閘門（軌道 B）— git pre-commit 掛鉤
+# 任何 commit 前必須通過 YKC 驗證（編譯 0 錯誤 + 測試全過），否則攔截。
+# 安裝：cp deploy/git/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+# 或設定：git config core.hooksPath deploy/git
+YKC_BIN=${YKC_BIN:-ykc-judge}
+
+if ! command -v "$YKC_BIN" >/dev/null 2>&1; then
+  echo "⚠️  找不到 $YKC_BIN，跳過 YKC 閘門（本機請先 make judge）"
+  exit 0
+fi
+
+echo "── YKC 閘門驗證中 ──"
+"$YKC_BIN" -dir "$(pwd)" -gate
+if [ $? -ne 0 ]; then
+  echo "❌ YKC 閘門攔截：編譯/測試未通過，禁止提交。請先修復再 commit。"
+  exit 1
+fi
+exit 0

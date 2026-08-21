@@ -1,0 +1,12 @@
+# 忽略構建上下文中的大型/非必要路徑，加速建置
+.git
+.gitignore
+**/target
+**/node_modules
+**/*.db
+demo-rust-cli/target
+bin
+docs
+*.md
+.ykc
+ykc-receipt.json

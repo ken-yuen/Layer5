@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YKC Trust Console</title>
+<style>
+:root{
+  --bg:#080c11; --panel:#0e141b; --panel2:#131b24; --line:#1f2b38; --line2:#2a3a4b;
+  --text:#d5dfe8; --dim:#8a99a8; --faint:#5b6a79;
+  --green:#34d17b; --amber:#f0a94b; --red:#ff6363; --cyan:#56b7e6; --violet:#9a8cff;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono","Noto Sans Mono CJK TC",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--text);font-family:var(--mono);
+  font-size:13px;line-height:1.55;
+  background-image:
+    linear-gradient(rgba(86,183,230,.025) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(86,183,230,.025) 1px,transparent 1px);
+  background-size:32px 32px;
+}
+a{color:var(--cyan);text-decoration:none}
+.wrap{max-width:1280px;margin:0 auto;padding:20px 24px 60px}
+
+/* ── header ── */
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;
+  border-bottom:1px solid var(--line2);padding-bottom:14px;margin-bottom:16px;flex-wrap:wrap}
+.brand .kicker{color:var(--faint);font-size:10px;letter-spacing:.22em}
+.brand h1{font-size:21px;font-weight:600;letter-spacing:.04em;margin:2px 0 4px}
+.brand .tag{color:var(--dim);font-size:12px}
+.hstat{text-align:right;font-size:11px;color:var(--dim)}
+.hstat .clock{color:var(--text);font-size:14px}
+.badge{display:inline-block;padding:2px 9px;border:1px solid var(--line2);border-radius:2px;
+  font-size:10px;letter-spacing:.12em;margin-left:6px;vertical-align:1px}
+.badge.good{color:var(--green);border-color:rgba(52,209,123,.4)}
+.badge.bad{color:var(--red);border-color:rgba(255,99,99,.5);background:rgba(255,99,99,.08)}
+
+/* ── stat strip ── */
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
+.stat{background:var(--panel);border:1px solid var(--line);padding:10px 12px}
+.stat .k{color:var(--faint);font-size:10px;letter-spacing:.14em}
+.stat .v{font-size:20px;margin-top:2px;font-variant-numeric:tabular-nums}
+.stat .v small{font-size:11px;color:var(--dim)}
+
+/* ── sections ── */
+section{margin-bottom:22px}
+.sec{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+.sec .no{color:var(--faint);font-size:10px;letter-spacing:.16em}
+.sec h2{font-size:12px;font-weight:600;letter-spacing:.16em;color:var(--dim)}
+.sec .rule{flex:1;border-bottom:1px solid var(--line)}
+
+/* ── project cards ── */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);padding:13px 14px}
+.card .head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.card .pname{font-size:14px;font-weight:600}
+.card .pdir{color:var(--faint);font-size:10px;word-break:break-all;margin:2px 0 8px}
+.card .rows{font-size:11px}
+.card .rows div{display:flex;justify-content:space-between;gap:10px;padding:2px 0;border-top:1px dashed var(--line)}
+.card .rows div:first-child{border-top:none}
+.card .rows .k{color:var(--dim)}
+.card .rows .v{color:var(--text);text-align:right;word-break:break-all;font-variant-numeric:tabular-nums}
+.agents{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.pill{font-size:10px;padding:2px 8px;border:1px solid var(--line2);border-radius:10px;color:var(--dim)}
+.pill b{color:var(--text)}
+
+/* status colors */
+.st{font-weight:600}
+.st.PASS,.st.verified,.st.T3{color:var(--green)}
+.st.WARN,.st.T2{color:var(--amber)}
+.st.FAIL,.st.T1{color:var(--red)}
+.st.TAKEOVER,.st.T0,.st.tampered,.st.contradicted{color:var(--red)}
+.st.empty,.st.unverifiable{color:var(--faint)}
+.st.error{color:var(--violet)}
+
+/* ── verdicts / trust ── */
+.vlist{display:flex;flex-direction:column;gap:6px}
+.vitem{background:var(--panel);border:1px solid var(--line);border-left:2px solid var(--line2);padding:8px 12px;font-size:12px}
+.vitem.contradicted{border-left-color:var(--red)}
+.vitem.verified{border-left-color:var(--green)}
+.vitem.unverifiable{border-left-color:var(--faint)}
+.vitem .top{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.vitem .proj{color:var(--faint);font-size:10px}
+.vitem .claim{color:var(--text)}
+.vitem .sev{color:var(--dim);font-size:10px}
+.vitem .ev{color:var(--dim);font-size:11px;margin-top:3px}
+.vitem .ev b{color:var(--text)}
+.tevent{background:var(--panel);border:1px solid var(--line);padding:8px 12px;font-size:12px;margin-bottom:6px}
+.tevent .arrow{color:var(--amber)}
+.tevent .act{color:var(--dim);font-size:11px;margin-top:3px}
+
+/* ── feed ── */
+.feed{background:var(--panel);border:1px solid var(--line);overflow:auto;max-height:420px}
+table{width:100%;border-collapse:collapse;font-size:11px}
+thead th{position:sticky;top:0;background:var(--panel2);color:var(--dim);text-align:left;
+  font-weight:600;letter-spacing:.08em;padding:7px 10px;border-bottom:1px solid var(--line2);white-space:nowrap}
+tbody td{padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top;white-space:nowrap}
+tbody tr:hover{background:var(--panel2)}
+td.wrap{white-space:normal;word-break:break-all}
+.mono{font-variant-numeric:tabular-nums}
+.dim{color:var(--dim)}
+.faint{color:var(--faint)}
+.ttype{color:var(--cyan)}
+.hash{color:var(--faint);font-family:var(--mono)}
+
+footer{margin-top:30px;border-top:1px solid var(--line);padding-top:14px;color:var(--faint);font-size:11px}
+footer .api{color:var(--dim)}
+footer code{color:var(--cyan)}
+
+.empty-note{color:var(--dim);background:var(--panel);border:1px dashed var(--line2);
+  padding:22px;text-align:center;font-size:12px}
+#conn{font-size:10px;color:var(--faint);letter-spacing:.1em}
+
+/* ── control ── */
+.control{background:var(--panel);border:1px solid var(--line);padding:12px;margin-bottom:12px}
+.crow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.crow:last-child{margin-bottom:0}
+select,input{background:var(--panel2);border:1px solid var(--line2);color:var(--text);
+  font-family:var(--mono);font-size:12px;padding:7px 10px;flex:1;min-width:160px}
+select:focus,input:focus{outline:none;border-color:var(--cyan)}
+button{background:var(--panel2);border:1px solid var(--line2);color:var(--text);
+  font-family:var(--mono);font-size:12px;padding:7px 14px;cursor:pointer;letter-spacing:.05em}
+button:hover{border-color:var(--cyan);color:var(--cyan)}
+button.run{color:var(--green);border-color:rgba(52,209,123,.4)}
+button.stop{color:var(--red);border-color:rgba(255,99,99,.5);font-size:11px;padding:2px 8px}
+button.stop:hover{background:rgba(255,99,99,.12);color:var(--red)}
+button.logbtn{color:var(--dim);font-size:11px;padding:2px 8px}
+.jobs{width:100%;border-collapse:collapse;font-size:11px;background:var(--panel);border:1px solid var(--line)}
+.jobs th{background:var(--panel2);color:var(--dim);text-align:left;padding:6px 9px;border-bottom:1px solid var(--line2);white-space:nowrap}
+.jobs td{padding:6px 9px;border-bottom:1px solid var(--line);white-space:nowrap}
+.jobs td.wrap{white-space:normal;word-break:break-all}
+.logview{background:var(--bg);border:1px solid var(--line2);color:var(--dim);font-size:10.5px;
+  padding:9px;margin:4px 0 10px;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto}
+.spin{display:inline-block;width:8px;height:8px;border:2px solid var(--cyan);border-top-color:transparent;
+  border-radius:50%;animation:sp .8s linear infinite;vertical-align:0;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="kicker">YIELDKEYCODE</div>
+      <h1>YKC TRUST CONSOLE</h1>
+      <div class="tag">可信裁判 · 唯讀觀察台 · 所有數據直接讀自事實帳本，未經任何中介改寫</div>
+    </div>
+    <div class="hstat">
+      <div class="clock" id="clock">--:--:-- UTC</div>
+      <div id="conn">等待連線…</div>
+      <div>
+        <span class="badge good" id="intbadge">INTEGRITY —</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="strip" id="strip"></div>
+
+  <section>
+    <div class="sec"><span class="no">00</span><h2>CONTROL · 控制（選擇對象 · 運行 · 停止）</h2><div class="rule"></div></div>
+    <div class="control">
+      <div class="crow">
+        <select id="projsel"><option value="">偵測專案…</option></select>
+        <input id="projcustom" placeholder="或輸入專案路徑">
+        <input id="claims" placeholder="claims.json 路徑（護欄動作用，可選）">
+      </div>
+      <div class="crow actions">
+        <button data-a="smoke">煙測 smoke</button>
+        <button data-a="judge">除錯 judge</button>
+        <button data-a="gate">閘門 gate</button>
+        <button data-a="verify">驗證帳本 verify</button>
+        <button data-a="guard-verify">護欄比對</button>
+        <button data-a="guard-score">護欄計分</button>
+      </div>
+    </div>
+    <div id="jobs"></div>
+  </section>
+
+  <section>
+    <div class="sec"><span class="no">01</span><h2>PROJECTS · 專案</h2><div class="rule"></div></div>
+    <div class="grid" id="projects"></div>
+  </section>
+
+  <section>
+    <div class="sec"><span class="no">02</span><h2>TRUST &amp; VERDICTS · 信任與判決</h2><div class="rule"></div></div>
+    <div id="verdicts"></div>
+  </section>
+
+  <section>
+    <div class="sec"><span class="no">03</span><h2>LIVE FACT STREAM · 即時事實流</h2><div class="rule"></div></div>
+    <div class="feed" id="feed"></div>
+  </section>
+
+  <footer>
+    <div class="api">機器可讀（供 AI agent / 外部系統）：<code>GET /api/state</code> · <code>GET /api/raw?project=&lt;dir&gt;</code> · <code>GET /healthz</code></div>
+    <div style="margin-top:6px">READ-ONLY OBSERVER — 本服務不產生、不改寫任何資料。每一條事實都可在專案 <code>.ykc/ledger.jsonl</code> 中逐條查證（hash 串鏈）。</div>
+  </footer>
+</div>
+
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const sh=h=>h?h.slice(0,12)+"…":"—";
+const ts2=t=>t?t.replace("T"," ").slice(0,19)+"Z":"—";
+
+const TRUST=["T0 全面接管","T1 加強驗證","T2 常態硬閘門","T3 高度信任"];
+const TRUST_CLS=["T0","T1","T2","T3"];
+const SEV=["無","誇大","隱瞞","欺騙","偽造"];
+const INTEG={"verified":"✅ 鏈完整","tampered":"🛑 鏈遭竄改","empty":"○ 無記錄","error":"✕ 讀取失敗"};
+
+function badge(overall){
+  const m={PASS:["PASS","T3"],WARN:["WARN","T2"],FAIL:["FAIL","T1"],TAKEOVER:["TAKEOVER","T0"],"":["—",""]};
+  const [txt,cls]=m[overall]||[overall,""];
+  return `<span class="st ${cls}">${txt}</span>`;
+}
+
+async function load(){
+  try{
+    const r=await fetch("/api/state",{cache:"no-store"});
+    const s=await r.json();
+    render(s);
+    $("#conn").textContent="已連線 · 每 2 秒自動更新";
+  }catch(e){
+    $("#conn").textContent="連線失敗："+e;
+  }
+}
+
+function render(s){
+  $("#clock").textContent=ts2(s.server_time)+" UTC";
+  const intBadge=$("#intbadge");
+  if(s.tampered>0){intBadge.className="badge bad";intBadge.textContent="INTEGRITY BREACH ×"+s.tampered;}
+  else{intBadge.className="badge good";intBadge.textContent="INTEGRITY VERIFIED";}
+
+  const agents=new Set();
+  s.projects.forEach(p=>Object.keys(p.agents||{}).forEach(a=>agents.add(a)));
+  const totVerd=s.projects.reduce((n,p)=>n+(p.verdicts||[]).length,0);
+
+  $("#strip").innerHTML=[
+    stat("專案 PROJECTS",s.total_projects),
+    stat("事實 FACTS",s.total_facts),
+    stat("代理 AGENTS",agents.size),
+    stat("判決 VERDICTS",totVerd),
+    stat("鏈遭竄改 TAMPERED",s.tampered,s.tampered>0?"bad":"")
+  ].join("");
+
+  renderProjects(s.projects);
+  renderVerdicts(s.projects);
+  renderFeed(s.projects);
+}
+function stat(k,v,cls){
+  return `<div class="stat"><div class="k">${k}</div><div class="v ${cls==="bad"?"st T0":""}">${v}</div></div>`;
+}
+
+function renderProjects(list){
+  const el=$("#projects");
+  if(!list.length){el.innerHTML=`<div class="empty-note">未發現專案。請先執行任一 ykc 命令（如 <code>make verify-all</code>）以產生事實帳本。</div>`;return;}
+  el.innerHTML=list.map(p=>{
+    const integCls=p.integrity;
+    const rows=[
+      ["完整性",`<span class="st ${integCls}">${INTEG[p.integrity]||p.integrity}</span>`],
+      ["事實數",p.fact_count],
+      ["鏈頭",`<span class="hash" title="${esc(p.chain_head)}">${sh(p.chain_head)}</span>`],
+      ["收據",p.receipt?badge(p.receipt.overall):`<span class="faint">—</span>`],
+      ["最近活動",ts2(p.last_fact&&p.last_fact.ts)],
+    ].map(r=>`<div><span class="k">${r[0]}</span><span class="v">${r[1]}</span></div>`).join("");
+    const pills=Object.entries(p.agents||{}).map(([a,l])=>
+      `<span class="pill">${esc(a)} <b class="st ${TRUST_CLS[l]||""}">${TRUST[l]||"T"+l}</b></span>`).join("");
+    return `<div class="card">
+      <div class="head"><span class="pname">${esc(p.name)}</span><span class="st ${integCls}"></span></div>
+      <div class="pdir">${esc(p.dir)}</div>
+      <div class="rows">${rows}</div>
+      <div class="agents">${pills||`<span class="faint">無代理記錄</span>`}</div>
+    </div>`;
+  }).join("");
+}
+
+function renderVerdicts(list){
+  const el=$("#verdicts");
+  const vs=[],evs=[];
+  list.forEach(p=>{
+    (p.verdicts||[]).forEach(v=>vs.push({p:p.name,v}));
+    (p.trust_events||[]).forEach(e=>evs.push({p:p.name,e}));
+  });
+  if(!vs.length&&!evs.length){el.innerHTML=`<div class="empty-note">尚無判決記錄。執行 <code>make guard-score</code> 後，代理聲明的判決與信任棘輪事件會在此顯示。</div>`;return;}
+  let html="";
+  if(evs.length){
+    html+=evs.map(({p,e})=>`<div class="tevent">
+      <div class="top"><span class="proj">${esc(p)}</span>
+        <span class="st ${TRUST_CLS[e.from]||""}">${TRUST[e.from]||"T"+e.from}</span>
+        <span class="arrow">→</span>
+        <span class="st ${TRUST_CLS[e.to]||""}">${TRUST[e.to]||"T"+e.to}</span>
+        <span class="sev">${esc(e.kind)}（${esc(e.intent)}）</span></div>
+      <div class="act">${esc(e.action)}</div>
+    </div>`).join("");
+  }
+  if(vs.length){
+    html+='<div class="vlist">'+vs.map(({p,v})=>`<div class="vitem ${esc(v.verdict)}">
+      <div class="top"><span class="proj">${esc(p)}</span><span class="st ${esc(v.verdict)}">${esc(v.verdict)}</span>
+        <span class="claim">${esc(v.text)}</span>
+        ${v.severity?`<span class="sev">嚴重度${v.severity}·${SEV[v.severity]||""}</span>`:""}</div>
+      <div class="ev">證據：<b>${esc(v.evidence)}</b></div>
+    </div>`).join("")+"</div>";
+  }
+  el.innerHTML=html;
+}
+
+function renderFeed(list){
+  const el=$("#feed");
+  const facts=[];
+  list.forEach(p=>(p.facts||[]).slice(0,80).forEach(f=>facts.push({p:p.name,f})));
+  facts.sort((a,b)=>b.f.seq-a.f.seq);
+  const top=facts.slice(0,120);
+  if(!top.length){el.innerHTML=`<div class="empty-note">尚無事實記錄。</div>`;return;}
+  el.innerHTML=`<table><thead><tr>
+    <th>SEQ</th><th>時間</th><th>專案</th><th>類型</th><th>來源</th><th>內容</th><th>HASH</th>
+  </tr></thead><tbody>`+
+  top.map(({p,f})=>`<tr>
+    <td class="mono">${f.seq}</td>
+    <td class="dim">${ts2(f.ts)}</td>
+    <td>${esc(p)}</td>
+    <td class="ttype">${esc(f.type)}</td>
+    <td class="dim">${esc(f.actor)}</td>
+    <td class="wrap dim">${esc(compact(f.payload))}</td>
+    <td class="hash" title="${esc(f.hash)}">${sh(f.hash)}</td>
+  </tr>`).join("")+"</tbody></table>";
+}
+
+function compact(p){
+  if(p==null)return "—";
+  try{const s=JSON.stringify(p);return s.length>160?s.slice(0,160)+"…":s;}catch(e){return "—";}
+}
+
+/* ── control layer ── */
+const ACTIONS={
+  smoke:"煙測",judge:"除錯",gate:"閘門",verify:"驗證帳本",
+  "guard-verify":"護欄比對","guard-score":"護欄計分"
+};
+const JSTATUS={running:["running","#56b7e6","運行中"],done:["done","#34d17b","完成"],
+  failed:["failed","#ff6363","失敗"],stopped:["stopped","#8a99a8","已停止"],error:["error","#f0a94b","錯誤"]};
+
+function curProject(){
+  const c=$("#projcustom").value.trim();
+  if(c)return c;
+  return $("#projsel").value;
+}
+
+async function loadProjects(){
+  try{
+    const r=await fetch("/api/projects",{cache:"no-store"});
+    const d=await r.json();
+    const sel=$("#projsel");
+    const cur=sel.value;
+    sel.innerHTML='<option value="">— 選擇專案 —</option>'+d.projects.map(p=>
+      `<option value="${esc(p)}" ${p===cur?"selected":""}>${esc(p)}</option>`).join("");
+  }catch(e){}
+}
+
+async function startAction(a){
+  const project=curProject();
+  if(!project){alert("請先選擇或輸入專案路徑");return;}
+  const claims=$("#claims").value.trim();
+  try{
+    const r=await fetch("/api/jobs",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({action:a,project,claims})});
+    if(!r.ok){const t=await r.text();alert("啟動失敗："+t);return;}
+    loadJobs();
+  }catch(e){alert("連線失敗："+e);}
+}
+
+async function stopJob(id){
+  try{
+    const r=await fetch("/api/jobs/stop",{method:"POST",
+      headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    if(!r.ok){const t=await r.text();alert("停止失敗："+t);}
+    loadJobs();
+  }catch(e){alert("連線失敗："+e);}
+}
+
+function toggleLog(id){
+  const el=document.getElementById("log-"+id);
+  if(!el)return;
+  el.style.display = el.style.display==="none" ? "block" : "none";
+}
+
+async function loadJobs(){
+  try{
+    const r=await fetch("/api/jobs",{cache:"no-store"});
+    const d=await r.json();
+    renderJobs(d.jobs||[]);
+  }catch(e){}
+}
+
+function renderJobs(list){
+  const el=$("#jobs");
+  if(!list.length){el.innerHTML=`<div class="empty-note">尚無任務。揀一個專案，按上方動作按鈕啟動。</div>`;return;}
+  el.innerHTML=`<table class="jobs"><thead><tr>
+    <th>時間</th><th>專案</th><th>動作</th><th>狀態</th><th>exit</th><th></th><th></th>
+  </tr></thead><tbody>`+list.map(j=>{
+    const [cls,col,label]=JSTATUS[j.status]||["","#d5dfe8",j.status];
+    const spin=j.status==="running"?`<span class="spin"></span>`:"";
+    return `<tr style="border-left:2px solid ${col}">
+      <td class="dim">${ts2(j.started)}</td>
+      <td title="${esc(j.project)}">${esc((j.project||"").split("/").pop())}</td>
+      <td>${ACTIONS[j.action]||j.action}</td>
+      <td style="color:${col}">${spin}${label}</td>
+      <td class="mono">${j.status==="running"?"—":j.exit_code}</td>
+      <td><button class="logbtn" onclick="toggleLog('${j.id}')">log</button></td>
+      <td>${j.status==="running"?`<button class="stop" onclick="stopJob('${j.id}')">■ 停止</button>`:""}</td>
+    </tr>
+    <tr id="log-${j.id}" style="display:none"><td colspan="7" class="wrap">
+      <div class="logview">${esc(j.log||"(無輸出)")}</div>
+    </td></tr>`;
+  }).join("")+"</tbody></table>";
+}
+
+load();
+setInterval(load,2000);
+loadJobs();
+setInterval(loadJobs,1200);
+loadProjects();
+</script>
+</body>
+</html>

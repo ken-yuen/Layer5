@@ -1,0 +1,29 @@
+# ── 建置產物 ──
+/bin/
+*.exe
+/tmp/
+
+# ── Rust 建置產物 ──
+**/target/
+Cargo.lock.orig
+
+# ── YKC 運行產物（事實帳本 / 收據 / 證據報告——勿入庫）──
+**/.ykc/
+**/ykc-receipt.json
+evidence*.md
+
+# ── 工具鏈設定（不應進 repo）──
+.rustup/
+.cargo/
+
+# ── 編輯器 / 系統 ──
+.DS_Store
+*.swp
+.vscode/
+.idea/
+.cache/
+.config/
+
+# ── shell 設定（本機才有）──
+.profile
+.bashrc

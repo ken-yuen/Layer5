@@ -1,0 +1,8 @@
+{
+  "claims": [
+    { "id": "c1", "text": "supports --verbose flag", "feature": "flag:--verbose" },
+    { "id": "c2", "text": "has a greet subcommand", "feature": "subcommand:greet" },
+    { "id": "c3", "text": "supports --json output", "feature": "flag:--json" },
+    { "id": "c4", "text": "has a delete subcommand", "feature": "subcommand:delete" }
+  ]
+}

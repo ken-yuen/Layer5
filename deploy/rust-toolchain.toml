@@ -1,0 +1,6 @@
+# YKC 工具鏈版本鎖定 ——「任何裝置位元組一致」的關鍵檔案
+# rustup / cargo 讀取本檔後自動安裝此精確版本；YKC 鏡像亦據此建置。
+[toolchain]
+channel = "1.98.0"
+profile = "minimal"
+components = ["rustfmt", "clippy", "rust-analyzer"]

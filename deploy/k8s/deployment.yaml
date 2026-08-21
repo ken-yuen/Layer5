@@ -1,0 +1,77 @@
+# YKC 裁判 —— Kubernetes 部署（T3 雲端 SaaS 層）
+# 適用：YKC 商業版雲端服務；裁判本身跑在標準 runtime（runc）即可，
+#       不可信代碼的編譯則一律進入 gVisor 沙盒（見 sandbox-runtime.yaml）。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ykc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ykc-receipts
+  namespace: ykc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ykc-judge
+  namespace: ykc
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ykc-judge
+  template:
+    metadata:
+      labels:
+        app: ykc-judge
+    spec:
+      containers:
+        - name: ykc
+          image: ykc:latest          # 由 deploy/Dockerfile 建置
+          imagePullPolicy: IfNotPresent
+          args:
+            - "-dir"
+            - "/workspace/project"
+          workingDir: /workspace
+          volumeMounts:
+            - name: receipts
+              mountPath: /workspace/receipts
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "2"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: receipts
+          persistentVolumeClaim:
+            claimName: ykc-receipts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ykc-judge
+  namespace: ykc
+spec:
+  selector:
+    app: ykc-judge
+  ports:
+    - name: mcp
+      port: 8080
+      targetPort: 8080

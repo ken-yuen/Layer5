@@ -1,0 +1,10 @@
+{
+  "agent_id": "agent-honest-01",
+  "session_id": "sess-001",
+  "claims": [
+    { "id": "h1", "text": "CLI 支援 --verbose 旗標", "feature": "flag:--verbose" },
+    { "id": "h2", "text": "CLI 有 greet 子命令", "feature": "subcommand:greet" },
+    { "id": "h3", "text": "專案可成功編譯", "feature": "compiles" },
+    { "id": "h4", "text": "全部測試通過", "feature": "tests_pass" }
+  ]
+}
