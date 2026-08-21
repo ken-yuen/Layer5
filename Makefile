@@ -16,11 +16,13 @@
 .PHONY: setup verify-all build binaries smoke judge lsp guard guard-verify guard-score guard-mcp panel health image up clean
 
 # 工具鏈位置：預設 $HOME/.ykc（零 sudo）；可用環境變數覆寫（如 YKC_HOME=/opt/ykc）
+# 注意：RUSTUP_HOME / CARGO_HOME 用「?=」尊重環境已設值——
+#   本地：launch.sh / dev-setup.sh 會設好；CI：dtolnay/rust-toolchain 裝在 $HOME/.rustup + $HOME/.cargo，
+#   若 Makefile 強行覆寫會令 CI 的 rustup 找不到 toolchain。
 YKC_HOME ?= $(HOME)/.ykc
-export RUSTUP_HOME := $(YKC_HOME)/rustup
-export CARGO_HOME := $(YKC_HOME)/cargo
-# Go：優先沿用系統 go，否則用 YKC_HOME/go；rust-analyzer 在 YKC_HOME/bin
-export PATH := $(YKC_HOME)/bin:$(YKC_HOME)/go/bin:$(CARGO_HOME)/bin:$(PATH)
+export RUSTUP_HOME ?= $(YKC_HOME)/rustup
+export CARGO_HOME ?= $(YKC_HOME)/cargo
+export PATH := $(YKC_HOME)/bin:$(YKC_HOME)/go/bin:$(YKC_HOME)/cargo/bin:$(PATH)
 
 setup:
 	bash dev-setup.sh
