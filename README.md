@@ -35,6 +35,11 @@ make image && make up
 | `YKC_YieldKeyCode_深度分析報告.md` | 技術五層、依賴清單、整體評分（v1.0） |
 | `YKC_反欺騙核心設計_v2.md` | 原子監控 × 動態護欄 × 信任棘輪（v2.0） |
 | `YKC_煙測引擎設計與PoC.md` | 煙測引擎設計與實證 |
+| `YKC_05_原子監控與動態護欄對齊報告.md` | GitHub 原檔與上一輪原子監控 / 動態護欄開發內容對齊結果 |
+| `YKC_06_沙盒與rustc預編譯設計實作.md` | 沙盒選型、rustc/cargo 預編譯 pipeline、無法預編譯場景安排 |
+| `YKC_07_新增功能技術債審計與優化報告.md` | 新增原子監控 / 動態護欄 / 沙盒預編譯後的技術債審計與修復記錄 |
+| `YKC_08_eventstore_ledger橋接設計與實作.md` | EventStore 原子事件與 Ledger hash-chain 橋接設計、實作、應用 |
+| `YKC_09_panel工作視覺與審計健康優化報告.md` | Trust Console 工作中動態視覺、precompile/sync 控制、event/ledger 健康顯示 |
 
 ## 目錄結構
 
@@ -47,8 +52,15 @@ make image && make up
 ├── YKC_00_構圖與路線圖.md          ← 進度參照物
 ├── YKC_01_容器化方案分析.md
 ├── YKC_02_架構整合與效能設計.md
+├── YKC_05_原子監控與動態護欄對齊報告.md
+├── YKC_06_沙盒與rustc預編譯設計實作.md
+├── YKC_07_新增功能技術債審計與優化報告.md
+├── YKC_08_eventstore_ledger橋接設計與實作.md
+├── YKC_09_panel工作視覺與審計健康優化報告.md
 ├── cmd/                           ← 四個命令（單一 module，共用 internal/）
 │   ├── ykc-smoke/main.go          ← 煙測引擎 ✅
+│   ├── ykc-atom/main.go           ← 原子監控 + 動態護欄 enforcement CLI ✅
+│   ├── ykc-precompile/             ← 沙盒 rustc/cargo 預編譯 ✅
 │   ├── ykc-judge/                 ← L4 除錯閉環 ✅
 │   │   ├── main.go      (judge/gate/verify 三模式)
 │   │   └── cargocheck.go (cargo check --json 解析 + 錯誤指紋)
@@ -67,6 +79,15 @@ make image && make up
 │       └── dashboard.html (內嵌面板，零外部依賴)
 ├── internal/                      ← 共享包（去重後唯一實作）
 │   ├── ledger/ledger.go           ← 事實帳本（judge/guard 共用，消除 drift）
+│   ├── atomicfile/                 ← 原子寫入 primitives
+│   ├── eventstore/                 ← immutable per-event JSON store
+│   ├── eventledger/                ← eventstore → ledger hash-chain bridge
+│   ├── monitor/                    ← workspace snapshot/diff
+│   ├── guardrail/                  ← 行為驅動動態護欄 policy
+│   ├── enforcement/                ← block/smoke takeover 狀態落盤
+│   ├── smoke/                      ← reusable smoke runner
+│   ├── sandbox/                    ← gVisor/bwrap/native execution abstraction
+│   ├── precompile/                 ← cargo check / rustc metadata pipeline
 │   └── rustutil/rustutil.go       ← 執行/解析/簽名/雜湊通用工具
 ├── core/interfaces.go             ← 五層窄介面 + Executor 骨架 ✅
 ├── demo-rust-cli/                 ← 健康示範專案（clap CLI，煙測用）

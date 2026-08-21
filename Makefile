@@ -10,10 +10,11 @@
 #   make guard-score    — T-15 信任棘輪（撒謊代理 → T0）
 #   make guard-mcp      — T-17 MCP server 測試
 #   make panel    — 啟動 YKC Trust Console（唯讀觀察台，port 8080）
+#   make precompile — Rust cargo/rustc 預編譯檢查
 #   make health   — 全專案健檢（vet + build + 回歸）
 #   make image   — 建置 OCI 鏡像（Podman 優先，回退 Docker）
 #   make up      — 本機容器一鍵運行
-.PHONY: setup verify-all build binaries smoke judge lsp guard guard-verify guard-score guard-mcp panel health image up clean
+.PHONY: setup verify-all build binaries smoke atom precompile judge lsp guard guard-verify guard-score guard-mcp panel health image up clean
 
 # 工具鏈位置：預設 $HOME/.ykc（零 sudo）；可用環境變數覆寫（如 YKC_HOME=/opt/ykc）
 YKC_HOME ?= $(HOME)/.ykc
@@ -39,6 +40,7 @@ verify-all: build
 	@go build -o bin/ykc-judge ./cmd/ykc-judge
 	@go build -o bin/ykc-guard ./cmd/ykc-guard
 	@go build -o bin/ykc-lsp ./cmd/ykc-lsp
+	@go build -o bin/ykc-precompile ./cmd/ykc-precompile
 	@echo "=============================================================="
 	@echo " ① 煙測引擎（健康專案，無謊報）→ 預期 PASS"
 	@./bin/ykc -dir ./demo-rust-cli -key ykc-dev-key | grep 整體判定
@@ -58,6 +60,8 @@ verify-all: build
 	@python3 ./test-mcp-client.py ./bin/ykc-guard ./demo-rust-cli | tail -1
 	@echo " ⑨ LSP 診斷 → 預期 initialize 成功"
 	@./bin/ykc-lsp ./demo-semantic-cli/src/main.rs rust-analyzer 2>/dev/null | head -1
+	@echo " ⑩ rustc/cargo 預編譯 → 預期 PASS"
+	@./bin/ykc-precompile -project ./demo-rust-cli -sandbox native -allow-native -json=false | head -1
 	@echo "=============================================================="
 	@echo "✅ 全功能實測完成（②⑦ 的 FAIL/TAKEOVER 為反欺騙的預期行為）"
 
@@ -65,7 +69,7 @@ build:
 	mkdir -p bin
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/ykc ./cmd/ykc-smoke
 
-# 建全部五個二進制（launch.sh 用；不執行任何動作）
+# 建全部二進制（launch.sh 用；不執行任何動作）
 binaries:
 	mkdir -p bin
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/ykc ./cmd/ykc-smoke
@@ -73,6 +77,18 @@ binaries:
 	go build -o bin/ykc-guard ./cmd/ykc-guard
 	go build -o bin/ykc-lsp ./cmd/ykc-lsp
 	go build -o bin/ykc-panel ./cmd/ykc-panel
+	go build -o bin/ykc-atom ./cmd/ykc-atom
+	go build -o bin/ykc-precompile ./cmd/ykc-precompile
+
+atom:
+	mkdir -p bin
+	go build -o bin/ykc-atom ./cmd/ykc-atom
+	@echo "ykc-atom built: bin/ykc-atom"
+
+precompile:
+	mkdir -p bin
+	go build -o bin/ykc-precompile ./cmd/ykc-precompile
+	./bin/ykc-precompile -project ./demo-rust-cli -sandbox native -allow-native -json=false
 
 judge:
 	go build -o bin/ykc-judge ./cmd/ykc-judge
@@ -101,7 +117,7 @@ panel: binaries
 smoke: build
 	./bin/ykc -dir ./demo-rust-cli -claims ./claims.json -key $${YKC_KEY:-ykc-dev-key}
 
-health:
+health: binaries
 	@echo "== go vet =="; go vet ./...
 	@echo "== go build =="; go build ./...
 	@echo "== smoke =="; ./bin/ykc -dir ./demo-rust-cli -claims ./claims.json -key ykc-dev-key >/dev/null 2>&1 && echo "  smoke OK" || echo "  smoke FAIL"
@@ -115,4 +131,4 @@ up:
 	podman compose -f deploy/compose.yaml up || docker compose -f deploy/compose.yaml up
 
 clean:
-	rm -rf bin demo-rust-cli/target
+	rm -rf bin demo-rust-cli/target demo-rust-cli/.ykc/precompile demo-semantic-cli/.ykc/precompile demo-broken-cli/.ykc/precompile

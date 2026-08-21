@@ -36,6 +36,26 @@ header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;
   font-size:10px;letter-spacing:.12em;margin-left:6px;vertical-align:1px}
 .badge.good{color:var(--green);border-color:rgba(52,209,123,.4)}
 .badge.bad{color:var(--red);border-color:rgba(255,99,99,.5);background:rgba(255,99,99,.08)}
+.work-indicator{margin-top:9px;display:inline-flex;align-items:center;gap:10px;justify-content:flex-end;
+  padding:7px 10px;border:1px solid var(--line2);background:rgba(19,27,36,.72);min-width:210px}
+.work-orb{position:relative;display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--faint);
+  box-shadow:0 0 0 0 rgba(91,106,121,.28);transition:background .2s ease,transform .2s ease}
+.work-orb:after{content:"";position:absolute;inset:-7px;border:1px solid rgba(91,106,121,.24);border-radius:50%;opacity:.4}
+.work-copy{display:flex;flex-direction:column;align-items:flex-start;line-height:1.1;text-align:left}
+.work-copy b{font-size:10px;letter-spacing:.16em;color:var(--faint)}
+.work-copy small{font-size:10px;color:var(--faint);margin-top:3px}
+.work-indicator.active{border-color:rgba(86,183,230,.56);background:linear-gradient(90deg,rgba(86,183,230,.13),rgba(52,209,123,.06))}
+.work-indicator.active .work-orb{background:var(--cyan);animation:ykcPulse 1.15s ease-in-out infinite;
+  box-shadow:0 0 18px rgba(86,183,230,.6),0 0 34px rgba(52,209,123,.25)}
+.work-indicator.active .work-orb:after{border-color:rgba(86,183,230,.55);animation:ykcRing 1.15s ease-out infinite}
+.work-indicator.active .work-copy b{color:var(--cyan)}
+.work-indicator.active .work-copy small{color:var(--text)}
+.work-indicator.error{border-color:rgba(255,99,99,.52);background:rgba(255,99,99,.08)}
+.work-indicator.error .work-orb{background:var(--red);box-shadow:0 0 18px rgba(255,99,99,.45)}
+.work-indicator.error .work-copy b{color:var(--red)}
+@keyframes ykcPulse{0%,100%{transform:scale(.72)}50%{transform:scale(1.55)}}
+@keyframes ykcRing{0%{transform:scale(.65);opacity:.82}100%{transform:scale(2.35);opacity:0}}
+@media (prefers-reduced-motion:reduce){.work-indicator.active .work-orb,.work-indicator.active .work-orb:after{animation:none}}
 
 /* ── stat strip ── */
 .strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
@@ -152,6 +172,10 @@ button.logbtn{color:var(--dim);font-size:11px;padding:2px 8px}
       <div>
         <span class="badge good" id="intbadge">INTEGRITY —</span>
       </div>
+      <div id="work-indicator" class="work-indicator idle" aria-live="polite" title="YKC 工作狀態">
+        <span class="work-orb" aria-hidden="true"></span>
+        <span class="work-copy"><b>YKC IDLE</b><small>等待人類指令</small></span>
+      </div>
     </div>
   </header>
 
@@ -169,7 +193,9 @@ button.logbtn{color:var(--dim);font-size:11px;padding:2px 8px}
         <button data-a="smoke">煙測 smoke</button>
         <button data-a="judge">除錯 judge</button>
         <button data-a="gate">閘門 gate</button>
+        <button data-a="precompile">預編譯 precompile</button>
         <button data-a="verify">驗證帳本 verify</button>
+        <button data-a="sync-ledger">同步帳本 sync</button>
         <button data-a="guard-verify">護欄比對</button>
         <button data-a="guard-score">護欄計分</button>
       </div>
@@ -193,7 +219,7 @@ button.logbtn{color:var(--dim);font-size:11px;padding:2px 8px}
   </section>
 
   <footer>
-    <div class="api">機器可讀（供 AI agent / 外部系統）：<code>GET /api/state</code> · <code>GET /api/raw?project=&lt;dir&gt;</code> · <code>GET /healthz</code></div>
+    <div class="api">機器可讀（供 AI agent / 外部系統）：<code>GET /api/state</code> · <code>GET /api/jobs</code> · <code>GET /api/raw?project=&lt;dir&gt;</code> · <code>GET /healthz</code></div>
     <div style="margin-top:6px">READ-ONLY OBSERVER — 本服務不產生、不改寫任何資料。每一條事實都可在專案 <code>.ykc/ledger.jsonl</code> 中逐條查證（hash 串鏈）。</div>
   </footer>
 </div>
@@ -233,21 +259,24 @@ function render(s){
   if(s.tampered>0){intBadge.className="badge bad";intBadge.textContent="INTEGRITY BREACH ×"+s.tampered;}
   else{intBadge.className="badge good";intBadge.textContent="INTEGRITY VERIFIED";}
 
+  const projects=s.projects||[];
   const agents=new Set();
-  s.projects.forEach(p=>Object.keys(p.agents||{}).forEach(a=>agents.add(a)));
-  const totVerd=s.projects.reduce((n,p)=>n+(p.verdicts||[]).length,0);
+  projects.forEach(p=>Object.keys(p.agents||{}).forEach(a=>agents.add(a)));
+  const totVerd=projects.reduce((n,p)=>n+(p.verdicts||[]).length,0);
 
   $("#strip").innerHTML=[
     stat("專案 PROJECTS",s.total_projects),
     stat("事實 FACTS",s.total_facts),
+    stat("事件 EVENTS",s.total_events||0),
     stat("代理 AGENTS",agents.size),
     stat("判決 VERDICTS",totVerd),
+    stat("鏈缺投影 MISSING",s.missing_projections||0,(s.missing_projections||0)>0?"bad":""),
     stat("鏈遭竄改 TAMPERED",s.tampered,s.tampered>0?"bad":"")
   ].join("");
 
-  renderProjects(s.projects);
-  renderVerdicts(s.projects);
-  renderFeed(s.projects);
+  renderProjects(projects);
+  renderVerdicts(projects);
+  renderFeed(projects);
 }
 function stat(k,v,cls){
   return `<div class="stat"><div class="k">${k}</div><div class="v ${cls==="bad"?"st T0":""}">${v}</div></div>`;
@@ -261,6 +290,8 @@ function renderProjects(list){
     const rows=[
       ["完整性",`<span class="st ${integCls}">${INTEG[p.integrity]||p.integrity}</span>`],
       ["事實數",p.fact_count],
+      ["事件/投影",`${p.event_count||0}/${p.projected_events||0}`],
+      ["缺投影",(p.missing_projections||0)>0?`<span class="st T0">${p.missing_projections}</span>`:`<span class="st T3">0</span>`],
       ["鏈頭",`<span class="hash" title="${esc(p.chain_head)}">${sh(p.chain_head)}</span>`],
       ["收據",p.receipt?badge(p.receipt.overall):`<span class="faint">—</span>`],
       ["最近活動",ts2(p.last_fact&&p.last_fact.ts)],
@@ -334,7 +365,7 @@ function compact(p){
 
 /* ── control layer ── */
 const ACTIONS={
-  smoke:"煙測",judge:"除錯",gate:"閘門",verify:"驗證帳本",
+  smoke:"煙測",judge:"除錯",gate:"閘門",precompile:"預編譯",verify:"驗證帳本","sync-ledger":"同步帳本",
   "guard-verify":"護欄比對","guard-score":"護欄計分"
 };
 const JSTATUS={running:["running","#56b7e6","運行中"],done:["done","#34d17b","完成"],
@@ -366,6 +397,7 @@ async function startAction(a){
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({action:a,project,claims})});
     if(!r.ok){const t=await r.text();alert("啟動失敗："+t);return;}
+    setWorkStarting(a);
     loadJobs();
   }catch(e){alert("連線失敗："+e);}
 }
@@ -390,7 +422,45 @@ async function loadJobs(){
     const r=await fetch("/api/jobs",{cache:"no-store"});
     const d=await r.json();
     renderJobs(d.jobs||[]);
-  }catch(e){}
+    setWorkState(d.jobs||[]);
+  }catch(e){setWorkError(e);}
+}
+
+function setWorkStarting(action){
+  const el=$("#work-indicator");
+  if(!el)return;
+  el.className="work-indicator active";
+  el.querySelector("b").textContent="YKC STARTING";
+  el.querySelector("small").textContent=(ACTIONS[action]||action)+" 正在啟動";
+  document.title="● YKC 工作中";
+}
+
+function setWorkError(e){
+  const el=$("#work-indicator");
+  if(!el)return;
+  el.className="work-indicator error";
+  el.querySelector("b").textContent="YKC JOB FEED ERROR";
+  el.querySelector("small").textContent=String(e).slice(0,80);
+}
+
+function setWorkState(list){
+  const running=list.filter(j=>j.status==="running");
+  const el=$("#work-indicator");
+  if(!el)return;
+  const b=el.querySelector("b"), small=el.querySelector("small");
+  if(running.length){
+    const names=[...new Set(running.map(j=>ACTIONS[j.action]||j.action))].slice(0,3).join(" / ");
+    el.className="work-indicator active";
+    b.textContent=`YKC WORKING ×${running.length}`;
+    small.textContent=names+" · 人類可見工作中";
+    document.title=`●(${running.length}) YKC 工作中`;
+  }else{
+    const last=list[0];
+    el.className="work-indicator idle";
+    b.textContent="YKC IDLE";
+    small.textContent=last?`最近：${ACTIONS[last.action]||last.action} ${JSTATUS[last.status]?.[2]||last.status}`:"等待人類指令";
+    document.title="YKC Trust Console";
+  }
 }
 
 function renderJobs(list){

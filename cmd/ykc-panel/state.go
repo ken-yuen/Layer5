@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"ykc/internal/eventledger"
+	"ykc/internal/eventstore"
 	"ykc/internal/ledger"
 )
 
@@ -54,26 +56,31 @@ type ReceiptView struct {
 
 // ProjectState 是單一專案的聚合狀態。
 type ProjectState struct {
-	Name        string           `json:"name"`
-	Dir         string           `json:"dir"`
-	Integrity   string           `json:"integrity"` // verified | tampered | empty | error
-	ChainHead   string           `json:"chain_head"`
-	FactCount   int              `json:"fact_count"`
-	LastFact    *FactView        `json:"last_fact,omitempty"`
-	Receipt     *ReceiptView     `json:"receipt,omitempty"`
-	Verdicts    []VerdictView    `json:"verdicts"`
-	TrustEvents []TrustEventView `json:"trust_events"`
-	Agents      map[string]int   `json:"agents"` // agentID → 信任等級 0..3
-	Facts       []FactView       `json:"facts"`
+	Name               string           `json:"name"`
+	Dir                string           `json:"dir"`
+	Integrity          string           `json:"integrity"` // verified | tampered | empty | error
+	ChainHead          string           `json:"chain_head"`
+	FactCount          int              `json:"fact_count"`
+	EventCount         int              `json:"event_count"`
+	ProjectedEvents    int              `json:"projected_events"`
+	MissingProjections int              `json:"missing_projections"`
+	LastFact           *FactView        `json:"last_fact,omitempty"`
+	Receipt            *ReceiptView     `json:"receipt,omitempty"`
+	Verdicts           []VerdictView    `json:"verdicts"`
+	TrustEvents        []TrustEventView `json:"trust_events"`
+	Agents             map[string]int   `json:"agents"` // agentID → 信任等級 0..3
+	Facts              []FactView       `json:"facts"`
 }
 
 // GlobalState 是全系統聚合狀態。
 type GlobalState struct {
-	ServerTime    string         `json:"server_time"`
-	TotalProjects int            `json:"total_projects"`
-	TotalFacts    int            `json:"total_facts"`
-	Tampered      int            `json:"tampered"`
-	Projects      []ProjectState `json:"projects"`
+	ServerTime         string         `json:"server_time"`
+	TotalProjects      int            `json:"total_projects"`
+	TotalFacts         int            `json:"total_facts"`
+	TotalEvents        int            `json:"total_events"`
+	MissingProjections int            `json:"missing_projections"`
+	Tampered           int            `json:"tampered"`
+	Projects           []ProjectState `json:"projects"`
 }
 
 // discoverProjects 找出根目錄及其一層子目錄中含 .ykc/ledger.jsonl 的專案。
@@ -130,6 +137,11 @@ func projectState(dir string) ProjectState {
 	path := filepath.Join(dir, ".ykc", "ledger.jsonl")
 	facts := ledger.ReadAll(path)
 	ps.FactCount = len(facts)
+	if es, err := eventstore.New(filepath.Join(dir, ".ykc", "events")); err == nil {
+		if events, err := es.Replay(); err == nil {
+			ps.EventCount = len(events)
+		}
+	}
 
 	ok, head, err := ledger.VerifyChain(path)
 	switch {
@@ -144,8 +156,17 @@ func projectState(dir string) ProjectState {
 	}
 	ps.ChainHead = head
 
+	projected := map[string]bool{}
 	for _, f := range facts {
 		ps.Facts = append(ps.Facts, FactView{Seq: f.Seq, Type: f.Type, Actor: f.Actor, Ts: f.Ts, Payload: f.Payload, Hash: f.Hash})
+		if eventledger.IsBridgeFact(f) {
+			var bp struct {
+				EventID string `json:"event_id"`
+			}
+			if json.Unmarshal(f.Payload, &bp) == nil && bp.EventID != "" {
+				projected[bp.EventID] = true
+			}
+		}
 		switch f.Type {
 		case "claim.verdict":
 			var p struct {
@@ -186,16 +207,22 @@ func projectState(dir string) ProjectState {
 	if len(ps.Facts) > 0 {
 		ps.LastFact = &ps.Facts[0]
 	}
+	ps.ProjectedEvents = len(projected)
+	if ps.EventCount > ps.ProjectedEvents {
+		ps.MissingProjections = ps.EventCount - ps.ProjectedEvents
+	}
 	ps.Receipt = readReceipt(dir)
 	return ps
 }
 
 func collectState(root string, extra []string) GlobalState {
-	gs := GlobalState{ServerTime: time.Now().UTC().Format(time.RFC3339)}
+	gs := GlobalState{ServerTime: time.Now().UTC().Format(time.RFC3339), Projects: []ProjectState{}}
 	for _, d := range discoverProjects(root, extra) {
 		ps := projectState(d)
 		gs.Projects = append(gs.Projects, ps)
 		gs.TotalFacts += ps.FactCount
+		gs.TotalEvents += ps.EventCount
+		gs.MissingProjections += ps.MissingProjections
 		gs.TotalProjects++
 		if ps.Integrity == "tampered" {
 			gs.Tampered++

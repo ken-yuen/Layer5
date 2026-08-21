@@ -88,8 +88,12 @@ func (m *JobManager) argv(action, project, claims string) (string, []string, err
 		return bin("ykc-judge"), []string{"-dir", project}, nil
 	case "gate":
 		return bin("ykc-judge"), []string{"-dir", project, "-gate"}, nil
+	case "precompile":
+		return bin("ykc-precompile"), []string{"-project", project, "-sandbox", "native", "-allow-native", "-json=false"}, nil
 	case "verify":
 		return bin("ykc-judge"), []string{"-dir", project, "-verify"}, nil
+	case "sync-ledger":
+		return bin("ykc-atom"), []string{"sync-ledger", "-root", project, "-state", ".ykc"}, nil
 	case "guard-verify":
 		if claims == "" {
 			return "", nil, fmt.Errorf("guard-verify 需要 claims 檔案路徑")
@@ -123,14 +127,19 @@ func (m *JobManager) Start(action, project, claims string) (*Job, error) {
 	}
 	cmd.Stdout = jobWriter{j}
 	cmd.Stderr = jobWriter{j}
-	if err := cmd.Start(); err != nil {
+	startErr := cmd.Start()
+	if startErr != nil {
 		j.Status = "error"
-		j.appendLog([]byte("啟動失敗: " + err.Error() + "\n"))
+		j.ExitCode = -1
+		j.appendLog([]byte("啟動失敗: " + startErr.Error() + "\n"))
 	}
 	m.mu.Lock()
 	m.jobs[j.ID] = j
 	m.order = append(m.order, j.ID)
 	m.mu.Unlock()
+	if startErr != nil {
+		return j, nil
+	}
 	go func() {
 		_ = cmd.Wait()
 		j.mu.Lock()
