@@ -16,12 +16,19 @@
 .PHONY: setup verify-all build binaries smoke judge lsp guard guard-verify guard-score guard-mcp panel health image up clean
 
 # 工具鏈位置：預設 $HOME/.ykc（零 sudo）；可用環境變數覆寫（如 YKC_HOME=/opt/ykc）
-# 注意：RUSTUP_HOME / CARGO_HOME 用「?=」尊重環境已設值——
-#   本地：launch.sh / dev-setup.sh 會設好；CI：dtolnay/rust-toolchain 裝在 $HOME/.rustup + $HOME/.cargo，
-#   若 Makefile 強行覆寫會令 CI 的 rustup 找不到 toolchain。
 YKC_HOME ?= $(HOME)/.ykc
-export RUSTUP_HOME ?= $(YKC_HOME)/rustup
-export CARGO_HOME ?= $(YKC_HOME)/cargo
+
+# 僅當 YKC_HOME 下「真的存在」rustup/cargo 目錄時才 export（本地 dev-setup 場景）。
+# CI 的 rust 由 dtolnay 裝在默認 $HOME/.rustup（且不 export RUSTUP_HOME）；
+# 若 Makefile 強行設 RUSTUP_HOME 會令 rustup 找不到 toolchain → cargo 立即失敗。
+YKC_RUSTUP_HOME := $(shell test -d "$(YKC_HOME)/rustup" && echo "$(YKC_HOME)/rustup")
+YKC_CARGO_HOME := $(shell test -d "$(YKC_HOME)/cargo" && echo "$(YKC_HOME)/cargo")
+ifneq ($(YKC_RUSTUP_HOME),)
+export RUSTUP_HOME := $(YKC_RUSTUP_HOME)
+endif
+ifneq ($(YKC_CARGO_HOME),)
+export CARGO_HOME := $(YKC_CARGO_HOME)
+endif
 export PATH := $(YKC_HOME)/bin:$(YKC_HOME)/go/bin:$(YKC_HOME)/cargo/bin:$(PATH)
 
 setup:
