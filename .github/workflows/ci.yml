@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build + verify-all
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install rust-analyzer (for LSP test)
+        run: |
+          curl -sL "https://github.com/rust-lang/rust-analyzer/releases/latest/download/rust-analyzer-x86_64-unknown-linux-gnu.gz" \
+            | gunzip > /usr/local/bin/rust-analyzer
+          chmod +x /usr/local/bin/rust-analyzer
+          rust-analyzer --version
+
+      - name: gofmt check
+        run: test -z "$(gofmt -l cmd internal core)" || { echo "以下檔案未 gofmt："; gofmt -l cmd internal core; exit 1; }
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: make binaries
+        run: make binaries
+
+      - name: make verify-all (全功能實測)
+        run: make verify-all
+
+  release:
+    name: release assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      - name: Build static binaries (linux-amd64)
+        run: |
+          mkdir -p dist/ykc
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc        ./cmd/ykc-smoke
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-judge  ./cmd/ykc-judge
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-guard  ./cmd/ykc-guard
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-lsp    ./cmd/ykc-lsp
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-panel  ./cmd/ykc-panel
+          tar czf dist/ykc-linux-amd64.tar.gz -C dist ykc
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ykc-linux-amd64.tar.gz
