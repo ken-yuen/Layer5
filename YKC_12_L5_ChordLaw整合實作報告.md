@@ -68,14 +68,38 @@ judge 對 E0502 的實際輸出（節選）：
    幾何修法: [E01 @ s4] 縮短 a 的區間: 把 a 的最後使用（現於 s5）移到 s4 之前
 ```
 
-## 5. 已知限制與後續（如實申報）
+## 5. P2 增量（2026-08-22 第二輪, v0.0.2）
+
+| 交付 | 位置 | 說明 |
+|---|---|---|
+| **真實 Rust→.cl 歸約** | `internal/borrow/extract.go` | 行級啟發式翻譯錯誤現場 fn；**驗證式**：歸約產物必須經引擎驗證（錯誤碼落在該 rustc 碼的幾何族 `ChordFamily` 內）才展示，否則回退 canonical 模板——寧缺勿錯；附 `sN ← file:line` 對照把拓撲錨回用家源碼；`E0502/E0506/E0382/E0505` 四類端到端測試通過 |
+| **L5 報告落盤** | `internal/borrow/persist.go` | `.ykc/l5/report.json`（judge 寫、panel 讀的唯一實作）；含紅邊數/歸約命中數/衝突圖/解釋 sha256（對賬帳本）；borrow 錯誤全修好時自動清除 |
+| **panel L5 視圖** | `cmd/ykc-panel` | 專案卡顯示「L5 紅邊」（0=幾何收斂, 綠；>0 紅）＋錯誤碼＋現場歸約標記；`<details>` 展開完整幾何解釋；`/api/state` 帶 `l5` 節點（機器可讀）；L5 report mtime 入觀察端快取鍵（防陳舊） |
+| **MCP 紅邊輸出** | `cmd/ykc-guard/mcp.go` | `ykc.borrow_explain` 回應加「紅邊(違法重疊): N — 修復收斂判據: 紅邊清零」 |
+| **帳本欄位擴充** | `borrow.analysis` 事實 | 加 `reduced`（真實歸約命中數）與 `red_edges`——未來量測的基礎數據 |
+
+### 第二輪審計（找錯/減債/去重）
+
+| 類 | 項 | 處置 |
+|---|---|---|
+| 重 | `internal/borrow.firstLine` 重複 `rustutil.FirstLine` | 刪除, 統一用 rustutil ✅ |
+| 重 | `topo.go` 自定義 `max/min` 重複 Go 1.21+ 內建 | 刪除 ✅ |
+| 重 | judge `l5Report` 與 panel `L5View` 結構手工同步（漂移隱患） | 抽出 `internal/borrow/persist.go` 唯一實作 ✅ |
+| 錯 | panel 觀察端快取鍵不含 L5 report mtime——`RemoveReport` 不寫帳本, 舊紅邊會殘留 | `stateKey` 加 `l5ModTime` ✅ |
+| 錯 | 修好 borrow 錯誤後 `.ykc/l5/report.json` 陳舊殘留 | `l5Explain` 無條件調用＋空時 `RemoveReport` ✅（E2E 驗證） |
+| 債 | `rustNoise["self"]=false` 無意義項 | 刪除 ✅ |
+| 債 | CI release 缺 `ykc-atom`/`ykc-precompile` 二進制與 `l5/chordlaw` 引擎（下載包 L5 幾何啞火） | release 打包補齊 ✅ |
+| 驗證 | staticcheck 全倉 | 0 告警 ✅ |
+| 驗證 | vendored 19 回歸＋26/26 rustc oracle（本機 rustc 1.98.0） | 全綠 ✅ |
+
+## 6. 已知限制與後續（如實申報）
 
 | 限制 | 出路 |
 |---|---|
-| judge 掛鉤是「模板法」——展示該錯誤碼的 canonical 幾何，非用家代碼的實際區間 | P2：真實 Rust→.cl AST 歸約（syn 前端）；屆時拓撲直接畫用家代碼 |
+| Rust→.cl 歸約是行級啟發法（`match`/closure/else 即放棄回退模板），非 AST 級 | P3：syn AST 前端；驗證式框架（ChordFamily 判據）已就緒, 換前端不動出口 |
 | 區間代數對迴圈/分支是線性近似（已以 Suspect 降級語氣） | T-18b：-Znll-facts 官方事實路線（控制流精確） |
-| 衝突圖 DOT 尚無面板渲染（軌 B 人類端） | P2：panel 加圓示 SVG＋衝突圖展示；「紅邊清零」做修復進度條 |
-| 成功率提升未量測 | 下一步：D 表加指標——同一 borrow 錯誤集,「純 rustc 診斷」vs「rustc＋幾何」的代理一次修復率對照（dogfooding 傳統） |
+| panel 衝突圖以 JSON 展示, 未做 SVG 圖形渲染 | 後續：dashboard 內嵌 DOT→SVG 渲染或直接畫弧 |
+| 成功率提升未量測 | 下一步：D 表加指標——同一 borrow 錯誤集,「純 rustc 診斷」vs「rustc＋幾何」的代理一次修復率對照；`borrow.analysis.reduced/red_edges` 欄位已為此鋪路 |
 
 ## 6. 上游同步約定
 

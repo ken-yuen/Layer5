@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"ykc/internal/rustutil"
 )
 
 // DefaultTimeout 是單次引擎調用的上限（引擎對最小樣例實測 <0.5s；此為防禦）。
@@ -112,7 +114,7 @@ func (a *Analyzer) AnalyzeFile(ctx context.Context, clPath string) (*Report, err
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("chordlaw 執行失敗: %v; stderr: %s", err, firstLine(stderr.String()))
+		return nil, fmt.Errorf("chordlaw 執行失敗: %v; stderr: %s", err, rustutil.FirstLine(stderr.String()))
 	}
 	var r Report
 	if err := json.Unmarshal(out, &r); err != nil {
@@ -142,12 +144,4 @@ func (a *Analyzer) AnalyzeSource(ctx context.Context, workDir, source string) (*
 		return nil, fmt.Errorf("寫入 .cl 臨時檔失敗: %v", err)
 	}
 	return a.AnalyzeFile(ctx, p)
-}
-
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
 }

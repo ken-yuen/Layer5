@@ -125,8 +125,9 @@ make image && make up
 
 borrow 錯誤是 LLM 代理最難修的一類——因為代理「睇唔見生命週期圖」。L5 把借用規則變成**代理可讀的幾何**：
 
-- **judge 自動掛鉤**：`ykc-judge` 遇到 borrow 類錯誤碼（E0499/E0502/E0503/E0505/E0506/E0382/E0597/E0106…）自動附「📐 L5 借用幾何解釋」：幾何規則卡（兩條法則＋封閉修法菜單）＋ canonical 樣例的 ASCII 區間拓撲；解釋 sha256 上帳本（`borrow.analysis` 事實）可審計。
-- **MCP 工具 ×2**：`ykc.borrow_rules`（規則卡，純靜態永遠可用）、`ykc.borrow_explain`（.cl 最小樣例 → 區間拓撲＋代數事實＋修法）。
+- **judge 自動掛鉤**：`ykc-judge` 遇到 borrow 類錯誤碼（E0499/E0502/E0503/E0505/E0506/E0382/E0597/E0106…）自動附「📐 L5 借用幾何解釋」：幾何規則卡（兩條法則＋封閉修法菜單）＋**真實歸約拓撲**——把錯誤現場的 fn 行級歸約為 `.cl` 並經引擎驗證（幾何族命中才用，附 `sN ← file:line` 對照錨回源碼），驗證不過回退 canonical 樣例；解釋 sha256 上帳本（`borrow.analysis` 事實）可審計。
+- **Trust Console 展示**：專案卡顯示「L5 紅邊」——衝突圖中違法重疊的數目，**紅邊清零 = 幾何收斂**，是代理修復的機械可驗判據；`/api/state` 帶 `l5` 節點供機器讀取。
+- **MCP 工具 ×2**：`ykc.borrow_rules`（規則卡，純靜態永遠可用）、`ykc.borrow_explain`（.cl 最小樣例 → 區間拓撲＋代數事實＋紅邊數＋修法）。
 - **判定權不轉移**：一切 L5 輸出都是 explanation，判定以 rustc 為準（決策 D22）。
 - **可選能力**：無 python3 時自動降級（規則卡仍可用），符合 T0 零依賴承諾。
 - 引擎：vendored [ChordLaw](l5/chordlaw/VENDOR.md)（Datalog 借用檢查器；19 項回歸＋26/26 rustc 1.98.0 oracle 差異測試一致）。

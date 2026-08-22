@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"ykc/internal/borrow"
 	"ykc/internal/claimview"
 	"ykc/internal/eventledger"
 	"ykc/internal/eventstore"
@@ -72,6 +73,8 @@ type ProjectState struct {
 	TrustEvents        []TrustEventView `json:"trust_events"`
 	Agents             map[string]int   `json:"agents"` // agentID → 信任等級 0..3
 	Facts              []FactView       `json:"facts"`
+	// L5 借用幾何分析視圖（judge 落盤; sha256 對賬帳本 borrow.analysis 事實）
+	L5 *borrow.AnalysisReport `json:"l5,omitempty"`
 }
 
 // GlobalState 是全系統聚合狀態。
@@ -152,6 +155,9 @@ func readReceipt(dir string) *ReceiptView {
 	return nil
 }
 
+// maxL5Explain 是面板展示的 L5 解釋文本上限（完整文本以 sha256 對賬帳本）。
+const maxL5Explain = 64 * 1024
+
 // ── D7：觀察端快取 ─────────────────────────────────────────────
 // 大專案下 /api/state 每 poll 全量 ReadAll+VerifyChain 是 O(n)×頻度。
 // 快取鍵 = (帳本 mtime, 帳本 size, 事件檔數)：帳本 append-only，
@@ -160,6 +166,7 @@ type stateKey struct {
 	ledgerModTime time.Time
 	ledgerSize    int64
 	eventFiles    int
+	l5ModTime     time.Time // L5 report.json mtime（零值 = 不存在）
 }
 
 type stateCacheEntry struct {
@@ -177,7 +184,12 @@ func computeStateKey(dir string) (stateKey, bool) {
 	if err != nil {
 		return stateKey{}, false
 	}
-	return stateKey{ledgerModTime: st.ModTime(), ledgerSize: st.Size(), eventFiles: countEventFiles(filepath.Join(dir, ".ykc", "events"))}, true
+	key := stateKey{ledgerModTime: st.ModTime(), ledgerSize: st.Size(), eventFiles: countEventFiles(filepath.Join(dir, ".ykc", "events"))}
+	// L5 報告獨立於帳本更新/清除（如 RemoveReport 路徑），mtime 入鍵防陳舊快取
+	if l5st, err := os.Stat(filepath.Join(dir, ".ykc", "l5", "report.json")); err == nil {
+		key.l5ModTime = l5st.ModTime()
+	}
+	return key, true
 }
 
 func countEventFiles(dir string) int {
@@ -269,6 +281,7 @@ func computeProjectState(dir string) ProjectState {
 		ps.MissingProjections = ps.EventCount - ps.ProjectedEvents
 	}
 	ps.Receipt = readReceipt(dir)
+	ps.L5 = borrow.ReadReport(dir, maxL5Explain)
 	return ps
 }
 

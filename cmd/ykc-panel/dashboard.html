@@ -71,6 +71,11 @@ section{margin-bottom:22px}
 .sec h2{font-size:12px;font-weight:600;letter-spacing:.16em;color:var(--dim)}
 .sec .rule{flex:1;border-bottom:1px solid var(--line)}
 
+/* ── L5 借用幾何 ── */
+.card details.l5{margin-top:8px;border-top:1px dashed var(--line);padding-top:6px}
+.card details.l5 summary{cursor:pointer;font-size:11px;color:var(--dim)}
+.card details.l5 pre{margin:6px 0 0;padding:8px;background:#0009;font-size:10px;line-height:1.5;overflow-x:auto;white-space:pre;max-height:340px;overflow-y:auto}
+
 /* ── project cards ── */
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
 .card{background:var(--panel);border:1px solid var(--line);padding:13px 14px}
@@ -295,14 +300,23 @@ function renderProjects(list){
       ["鏈頭",`<span class="hash" title="${esc(p.chain_head)}">${sh(p.chain_head)}</span>`],
       ["收據",p.receipt?badge(p.receipt.overall):`<span class="faint">—</span>`],
       ["最近活動",ts2(p.last_fact&&p.last_fact.ts)],
-    ].map(r=>`<div><span class="k">${r[0]}</span><span class="v">${r[1]}</span></div>`).join("");
+    ];
+    if(p.l5){ // L5 借用幾何: 紅邊 = 修復進度判據（0 = 幾何收斂）
+      rows.push(["L5 紅邊",p.l5.red_edges>0
+        ?`<span class="st T0">${p.l5.red_edges} 條違法重疊</span>`
+        :`<span class="st T3">0（幾何收斂）</span>`]);
+      rows.push(["L5 錯誤碼",`${(p.l5.codes||[]).map(esc).join(" ")}${p.l5.reduced>0?` <span class="faint">(現場歸約×${p.l5.reduced})</span>`:""}`]);
+    }
+    const rowsHtml=rows.map(r=>`<div><span class="k">${r[0]}</span><span class="v">${r[1]}</span></div>`).join("");
     const pills=Object.entries(p.agents||{}).map(([a,l])=>
       `<span class="pill">${esc(a)} <b class="st ${TRUST_CLS[l]||""}">${TRUST[l]||"T"+l}</b></span>`).join("");
+    const l5Block=p.l5&&p.l5.explanation?`<details class="l5"><summary>📐 L5 借用幾何解釋（解釋非判定）</summary><pre>${esc(p.l5.explanation)}</pre></details>`:"";
     return `<div class="card">
       <div class="head"><span class="pname">${esc(p.name)}</span><span class="st ${integCls}"></span></div>
       <div class="pdir">${esc(p.dir)}</div>
-      <div class="rows">${rows}</div>
+      <div class="rows">${rowsHtml}</div>
       <div class="agents">${pills||`<span class="faint">無代理記錄</span>`}</div>
+      ${l5Block}
     </div>`;
   }).join("");
 }

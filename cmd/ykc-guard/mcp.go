@@ -158,9 +158,11 @@ func callTool(dir, name string, args map[string]any) map[string]any {
 		if err != nil {
 			return toolResult("L5 分析失敗: "+err.Error(), true)
 		}
+		topo := borrow.BuildTopology(r)
 		var sb strings.Builder
-		sb.WriteString(borrow.BuildTopology(r).RenderText())
+		sb.WriteString(topo.RenderText())
 		fmt.Fprintf(&sb, "\nverdict(僅指此 .cl 模型): %s", r.Verdict)
+		fmt.Fprintf(&sb, "\n紅邊(違法重疊): %d — 修復收斂判據: 紅邊清零", topo.RedEdges())
 		for _, e := range r.Errors {
 			fmt.Fprintf(&sb, "\n  [%s] %s 「%s」— %s", e.Code, e.Stmt, e.StmtText, e.Message)
 		}

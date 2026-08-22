@@ -74,11 +74,17 @@ jobs:
       - name: Build static binaries (linux-amd64)
         run: |
           mkdir -p dist/ykc
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc        ./cmd/ykc-smoke
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-judge  ./cmd/ykc-judge
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-guard  ./cmd/ykc-guard
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-lsp    ./cmd/ykc-lsp
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-panel  ./cmd/ykc-panel
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc             ./cmd/ykc-smoke
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-judge       ./cmd/ykc-judge
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-guard       ./cmd/ykc-guard
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-lsp         ./cmd/ykc-lsp
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-panel       ./cmd/ykc-panel
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-atom        ./cmd/ykc-atom
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-precompile  ./cmd/ykc-precompile
+          # L5 引擎（ykc-judge/ykc-guard 的幾何解釋依賴; 執行檔旁 l5/chordlaw 自動探測）
+          mkdir -p dist/ykc/l5
+          cp -r l5/chordlaw dist/ykc/l5/
+          rm -rf dist/ykc/l5/chordlaw/examples/out dist/ykc/l5/chordlaw/.oracle_tmp dist/ykc/l5/chordlaw/__pycache__
           tar czf dist/ykc-linux-amd64.tar.gz -C dist ykc
 
       - name: Upload release assets
