@@ -162,6 +162,7 @@
 | T-17 | MCP server（minimal，零依賴） | T-12 | ✅（initialize/tools/list/tools/call；ykc.check/verify_claims/trust_status） | 2026-08-21 |
 | T-18a | L5 借用幾何解釋（vendored ChordLaw + internal/borrow: 文字拓撲/區間代數/衝突圖/幾何規則卡; judge 掛鉤 + MCP ×2 + 帳本 borrow.analysis） | — | ✅ | 2026-08-22 |
 | T-18a2 | L5 P2 增量（真實 Rust→.cl 驗證式歸約 + sN←file:line 錨定; L5 報告落盤 persist.go; panel 紅邊視圖+快取鍵; MCP 紅邊; release 補 L5 引擎; 第二輪審計 7 項修復; staticcheck 0 告警） | T-18a | ✅ | 2026-08-22 |
+| T-18a3 | L5 真實專案驗測（7 專案 ~20 萬行/10,255 fn 全掃描: 0 panic/0 不合法產物; 8 項邊角修復+5 條回歸; 真實形態注入 E2E; rustlings 語料; loop 複雜度防線 MaxLoopStmts。見 YKC_13） | T-18a2 | ✅ | 2026-08-22 |
 | T-18b | L5 官方事實路線（-Znll-facts→Go datalog; 以 T-18a golden 做 differential testing） | T-18a | ⬜ | |
 | T-19 | L1 依賴對齊（包 cargo-audit/deny） | — | ⬜ | |
 | T-20 | L2 結構統計（tree-sitter） | — | ⬜ | |
@@ -212,4 +213,4 @@
 
 ---
 
-*版次：v10.1（2026-08-22 L5 P2：T-18a2 ✅ 真實歸約+panel 紅邊+審計 7 修；v0.0.2；見 YKC_12 §5）。*
+*版次：v10.2（2026-08-22 L5 真實專案驗測：T-18a3 ✅ 7 專案 20 萬行掃描全綠；見 YKC_13）。*
