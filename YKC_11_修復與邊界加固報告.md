@@ -16,8 +16,14 @@
 | S2 | 雙套煙測引擎 drift | ✅ `cmd/ykc-smoke` 全部命令改經 `internal/smoke.Runner`（全專案唯一執行核心）；tail buffer 合一 `internal/tail` |
 | S3 | DiagnosticSummary 同名字段斷層 | ✅ `precompile` 改輸出 `domain.DiagnosticSummary`（正規化）+ 明細獨立欄位；**集成測試鎖死**「precompile 診斷→事件→護欄判定」全鏈 |
 | S4 | 帳本開鏈不校驗 | ✅ `ledger.OpenVerified`（開帳本即重放全鏈）；judge 寫入路徑改走之；實測竄改帳本→拒絕寫入 |
-| S5 | CI 工具鏈浮動 | ✅ rust 釘 `1.98.0`（與 rust-toolchain.toml 一致）、rust-analyzer 釘 `2026-08-17.4` |
-| S6 | release 漏 2 二進制 | ✅ release job 改 `make binaries` 單一來源（7 二進制全含） |
+| S5 | CI 工具鏈浮動 | ✅（見下註）rust 釘 `1.98.0`（與 rust-toolchain.toml 一致）、rust-analyzer 釘 `2026-08-17.4` |
+| S6 | release 漏 2 二進制 | ✅（見下註）release job 改 `make binaries` 單一來源（7 二進制全含） |
+
+> **S5/S6 推送狀態註記**：S5/S6 的變更全在 `.github/workflows/ci.yml`（8 行 diff），已提交於本地分支
+> **`ci-fix-local`（commit `52ba0a3`）**；因本環境 GitHub App 未獲 `workflows` 權限，含 workflow
+> 變更的推送被 GitHub 拒絕（diff 級檢查）。**解法二擇一**：① 於 Arena GitHub 整合設定為 App 開啟
+> `workflows` 權限後 `git push origin ci-fix-local:arena/01a02698-kyc --force-with-lease` 前先合入主分支；
+> ② 倉庫擁有者直接 cherry-pick `52ba0a3`（或依下文 diff 手動套用）。diff 全文見 `git show 52ba0a3`。
 | D1 | 帳本無檔案鎖 | ✅ flock 排他鎖（單寫者強制，第二寫者 `ErrLocked`）；測試鎖定 |
 | D2 | Scanner 1MB 靜默截斷 | ✅ 行長有界讀取器（16MB 上限，超限顯式報錯）；測試鎖定 |
 | D3 | eventledger O(n²) 補償 | ✅ 單次讀表建索引＋單次開帳本批量 append（O(n)）；去重檢查移入鎖內（消 TOCTOU） |
