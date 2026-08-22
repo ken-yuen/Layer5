@@ -8,6 +8,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -214,10 +215,9 @@ func runGate(dir string) {
 		}
 		os.Exit(1)
 	}
-	_, se, code := rustutil.Run(dir, "cargo", "test", "--quiet")
-	if code != 0 {
+	if ok, ev := tc.Test(context.Background(), dir); !ok {
 		fmt.Println("❌ YKC 閘門攔截：測試未通過")
-		fmt.Println(se)
+		fmt.Println(ev)
 		os.Exit(1)
 	}
 	fmt.Println("✅ YKC 閘門通過：編譯 0 錯誤、測試全過")

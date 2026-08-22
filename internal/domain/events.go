@@ -25,6 +25,10 @@ const (
 	EventTrustReset   EventKind = "trust.reset"
 	// 常駐監看事件（ykc serve；YKC_14）：去抖後的檔案變更批次。
 	EventFileChange EventKind = "file.change"
+	// 工具鏈握手事件（T-21c；YKC_22）：serve 啟動時的版本指紋申報。
+	// 此後每條 crate.compile / test.run 結論都可回鏈到當時的 attest——
+	// 任何裁判結論都能回答「是哪個 rustc 說的」。
+	EventToolchainAttest EventKind = "toolchain.attest"
 )
 
 // Envelope is the immutable unit persisted by the event store.

@@ -37,6 +37,7 @@ func main() {
 	poll := flag.Duration("poll", 250*time.Millisecond, "輪詢後端間隔（非 inotify 平台用）")
 	rules := flag.String("rules", "", "附加 datalog 護欄規則（.dl 檔或目錄；附加不取代預設）")
 	autoJudge := flag.Bool("auto-judge", false, ".rs 變更批次後自動觸發 judge 任務（單飛）")
+	tcPolicy := flag.String("toolchain-policy", "degrade", "工具鏈握手政策：strict=缺席/失配拒絕啟動；degrade=標記降級照常啟動")
 	flag.Parse()
 
 	extra := []string{}
@@ -55,17 +56,18 @@ func main() {
 	}
 
 	cfg := serve.Config{
-		Root:         *root,
-		ExtraDirs:    extra,
-		Addr:         *addr,
-		Port:         *port,
-		BinDir:       *bindir,
-		Token:        *token,
-		Depth:        *depth,
-		Debounce:     *debounce,
-		PollInterval: *poll,
-		RulesPath:    *rules,
-		AutoJudge:    *autoJudge,
+		Root:            *root,
+		ExtraDirs:       extra,
+		Addr:            *addr,
+		Port:            *port,
+		BinDir:          *bindir,
+		Token:           *token,
+		Depth:           *depth,
+		Debounce:        *debounce,
+		PollInterval:    *poll,
+		RulesPath:       *rules,
+		AutoJudge:       *autoJudge,
+		ToolchainPolicy: *tcPolicy,
 	}
 	srv, err := serve.New(cfg)
 	if err != nil {

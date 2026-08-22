@@ -51,7 +51,14 @@ staticcheck:
 	test -n "$$tool" || { echo "找不到 staticcheck；請先執行 make setup，或執行：GOBIN=\"$(YKC_HOME)/bin\" go install honnef.co/go/tools/cmd/staticcheck@v0.8.1"; exit 1; }; \
 	"$$tool" -checks=all ./...
 
-lint: fmt-check vet staticcheck
+# T-21a 解耦守衛：internal/toolchain 之外禁止直接 exec cargo/rustc
+#（internal/precompile 走沙盒 runStage、internal/sandbox 為執行器，屬既有豁免路徑）。
+toolchain-guard:
+	@bad="$$(grep -rn 'rustutil\.Run(.*"cargo"\|rustutil\.Run(.*"rustc"\|exec\.Command(.*"cargo"\|exec\.Command(.*"rustc"' --include='*.go' cmd internal core 2>/dev/null | grep -v '^internal/toolchain/' || true)"; \
+	test -z "$$bad" || { echo "❌ toolchain-guard：以下位置繞過 core.RustToolchain port 直呼 cargo/rustc："; echo "$$bad"; exit 1; }
+	@echo "✅ toolchain-guard：cargo/rustc 全部經 port 出入"
+
+lint: fmt-check vet staticcheck toolchain-guard
 
 setup:
 	bash dev-setup.sh
@@ -103,6 +110,8 @@ build:
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/ykc ./cmd/ykc-smoke
 
 # 建全部二進制（launch.sh 用；不執行任何動作）
+# 注：ykc-cap/ykc-deps/ykc-structure（YKC_21 能力包）代碼尚未落庫，
+#     落庫後再恢復對應 build 行——binaries 不得引用不存在的套件（T-21 修正）。
 binaries:
 	mkdir -p bin
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/ykc ./cmd/ykc-smoke
@@ -114,7 +123,8 @@ binaries:
 	go build -o bin/ykc-precompile ./cmd/ykc-precompile
 	go build -o bin/ykc-serve ./cmd/ykc-serve
 	go build -o bin/ykc-know ./cmd/ykc-know
-	go build -o bin/ykc-cap ./cmd/ykc-cap
+	go build -o bin/ykc-doctor ./cmd/ykc-doctor
+	go build -o bin/ykc-rustd ./cmd/ykc-rustd
 
 atom:
 	mkdir -p bin
@@ -164,6 +174,16 @@ l5-test:
 # L5 Go 接線層測試（拓撲/規則卡/golden；python3 缺席時 E2E 自動 Skip）
 borrow-test:
 	go test ./internal/borrow/...
+
+# ── T-21 工具鏈解耦（YKC_22）────────────────────────────────────────
+# 零工具鏈測試（core-lane）：replay/unavailable adapter + LSP 假 server，全綠不需 Rust。
+toolchain-test:
+	go test ./internal/toolchain/... ./internal/lsp/... ./internal/serve/ -run 'Test' -count=1
+
+# 契約測試（toolchain-lane）：真實鎖版 cargo 驗證診斷 JSON 契約未漂移；
+# YKC_REQUIRE_TOOLCHAIN=1 時「無 cargo」由 skip 轉為 fail（CI 不允許靜默降級）。
+contract-test:
+	YKC_REQUIRE_TOOLCHAIN=1 go test ./internal/toolchain/ -run 'TestContract' -v -count=1
 
 # T-24：獨立 head anchor 的截斷／重簽／遠端 witness 回歸。
 anchor-test:

@@ -1,0 +1,11 @@
+A variable already borrowed as immutable was borrowed as mutable.
+
+Erroneous code example:
+
+```
+let mut value = 3;
+let borrow = &value;
+let borrow_mut = &mut value; // error: cannot borrow `value` as mutable
+                             //        because it is also borrowed as immutable
+println!("{}", borrow);
+```

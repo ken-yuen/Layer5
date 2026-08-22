@@ -3,14 +3,20 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"ykc/core"
 	"ykc/internal/rustutil"
+	"ykc/internal/toolchain"
 )
+
+// tc 是本命令的工具鏈 port（T-21a）：生產期 = native；測試可注入 replay。
+var tc core.RustToolchain = toolchain.NewNative()
 
 type Project struct{ Dir string }
 
@@ -33,19 +39,11 @@ func (p Project) help() string {
 func (p Project) subcommands() []string { return rustutil.Subcommands(p.help()) }
 
 func (p Project) compiles() (bool, string) {
-	_, se, code := rustutil.Run(p.Dir, "cargo", "check", "--quiet")
-	if code == 0 {
-		return true, ""
-	}
-	return false, strings.TrimSpace(se)
+	return tc.QuickCheck(context.Background(), p.Dir)
 }
 
 func (p Project) testsPass() (bool, string) {
-	_, se, code := rustutil.Run(p.Dir, "cargo", "test", "--quiet")
-	if code == 0 {
-		return true, ""
-	}
-	return false, strings.TrimSpace(se)
+	return tc.Test(context.Background(), p.Dir)
 }
 
 func (p Project) hasFile(rel string) bool {

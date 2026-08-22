@@ -1,17 +1,28 @@
 name: CI
 
+# T-21b（YKC_22）：CI 拆 lane——
+#   core-lane      無 Rust 工具鏈；秒級；驗證「使用前解耦」不變式（A1/A2）
+#   toolchain-lane 鎖版 Rust；契約測試鎖定 cargo JSON / r-a 行為
+#   nightly-drift  每晚以最新 stable 跑契約測試；漂移提前現形，不擋 merge
+#
+# 注：make verify-all 暫不入 CI——其 capability-test 依賴的 cmd/ykc-cap 等
+#     YKC_21 代碼尚未落庫（見 YKC_23 執行報告）；落庫後恢復。
+
 on:
   push:
-    branches: [main]
+    branches: [main, ykc-serve-datalog]
     tags: ["v*"]
   pull_request:
+  schedule:
+    - cron: "17 19 * * *" # 每日 UTC 19:17（HKT 03:17）drift 檢查
 
 permissions:
   contents: read
 
 jobs:
-  test:
-    name: build + verify-all
+  core:
+    name: core-lane（零 Rust 依賴）
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,10 +38,57 @@ jobs:
           GOBIN="$RUNNER_TEMP/ykc-bin" go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
           echo "$RUNNER_TEMP/ykc-bin" >> "$GITHUB_PATH"
 
+      - name: 確保環境無 Rust（core-lane 不變式；runner 預裝則先屏蔽）
+        run: |
+          # hosted runner 可能預裝 rustup/cargo——core-lane 的意義是「零 Rust 也全綠」，
+          # 故先移除預裝二進制再斷言，而不是因 runner 鏡像變化而誤紅。
+          for tool in cargo rustc rust-analyzer rustup; do
+            while p="$(command -v "$tool" 2>/dev/null)"; do
+              echo "移除 runner 預裝 $p"
+              sudo rm -f "$p" || rm -f "$p"
+              hash -r
+            done
+          done
+          if command -v cargo >/dev/null 2>&1; then
+            echo "::error::無法屏蔽 cargo——core-lane 解耦驗證失效"; exit 1
+          fi
+          echo "✅ 環境確認零 Rust"
+
+      - name: lint (gofmt + vet + staticcheck + toolchain-guard)
+        run: make lint
+
+      - name: go build
+        run: go build ./...
+
+      - name: go test（無 Rust——replay fixture + 假 LSP server；A1 驗收）
+        run: go test ./...
+
+      - name: 跨平台交叉編譯煙測（分發解耦）
+        run: |
+          GOOS=darwin  GOARCH=arm64 go build -o /dev/null ./cmd/ykc-serve
+          GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/ykc-serve
+          GOOS=linux   GOARCH=arm64 go build -o /dev/null ./cmd/ykc-doctor
+
+      - name: make binaries
+        run: make binaries
+
+  toolchain:
+    name: toolchain-lane（鎖版 Rust 契約）
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    needs: core
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
       - name: Setup Rust (locked to deploy/rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@1.98.0
         with:
-          components: rustfmt, clippy
+          components: rustfmt, clippy, rust-analyzer
 
       - name: Install rust-analyzer (locked for LSP test)
         run: |
@@ -42,30 +100,46 @@ jobs:
           chmod +x /usr/local/bin/rust-analyzer
           rust-analyzer --version
 
-      - name: lint (gofmt + vet + staticcheck all)
-        run: make lint
+      - name: 契約測試（cargo JSON 診斷格式鎖定；skip 轉 fail）
+        run: make contract-test
 
-      - name: go build
-        run: go build ./...
-
-      - name: go test
+      - name: go test（含真工具鏈路徑）
         run: go test ./...
+
+      - name: ykc doctor（顯性探測，工件留檔）
+        run: |
+          go build -o bin/ykc-doctor ./cmd/ykc-doctor
+          ./bin/ykc-doctor -json | tee doctor-report.json
+          ./bin/ykc-doctor -strict
 
       - name: L5 ChordLaw 回歸（19 項）
         run: |
           python3 --version
           make l5-test
 
-      - name: make binaries
-        run: make binaries
+  nightly-drift:
+    name: nightly-drift（latest stable 漂移偵察）
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: make verify-all (全功能實測)
-        run: make verify-all
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      - name: Setup Rust (floating latest stable —— 故意不鎖)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 契約測試 vs latest stable
+        run: make contract-test
+        # 失敗 = cargo JSON / rustc 行為漂移預警：開 issue 處理，不阻塞 merge lane
 
   release:
     name: release assets
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: test
+    needs: [core, toolchain]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -89,6 +163,8 @@ jobs:
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-precompile  ./cmd/ykc-precompile
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-serve       ./cmd/ykc-serve
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-know        ./cmd/ykc-know
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-doctor      ./cmd/ykc-doctor
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-rustd       ./cmd/ykc-rustd
           # L5 引擎（ykc-judge/ykc-guard 的幾何解釋依賴; 執行檔旁 l5/chordlaw 自動探測）
           mkdir -p dist/ykc/l5
           cp -r l5/chordlaw dist/ykc/l5/

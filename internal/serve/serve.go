@@ -42,7 +42,10 @@ import (
 	"ykc/internal/ledger"
 	"ykc/internal/panel"
 	"ykc/internal/smoke"
+	"ykc/internal/toolchain"
 	"ykc/internal/watch"
+
+	"ykc/core"
 )
 
 // Config 是 ykc serve 的配置。
@@ -60,6 +63,11 @@ type Config struct {
 	AutoJudge    bool          // .rs 變更批次後自動觸發 judge 任務（需 BinDir 有 ykc-judge）
 	Actor        string        // 帳本 actor（零值 ykc-serve）
 	StateDir     string        // 專案內狀態目錄名（零值 .ykc）
+	// ToolchainPolicy（T-21c）：strict = 工具鏈缺席/失配拒絕啟動；
+	// degrade（零值預設）= 照常啟動並在帳本/日誌標記降級。
+	ToolchainPolicy string
+	// Toolchain 可注入（測試用 replay/unavailable）；零值 = native。
+	Toolchain core.RustToolchain
 }
 
 // Server 是常駐服務的運行實例。
@@ -67,6 +75,7 @@ type Server struct {
 	cfg   Config
 	jm    *panel.JobManager
 	extra []*datalog.Rule
+	tc    core.RustToolchain // 工具鏈 port（T-21a/c）
 
 	mu          sync.Mutex
 	bridges     map[string]*eventledger.Bridge // 專案目錄 → bridge
@@ -105,8 +114,19 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Depth < 0 {
 		cfg.Depth = 0
 	}
+	switch cfg.ToolchainPolicy {
+	case "":
+		cfg.ToolchainPolicy = PolicyDegrade
+	case PolicyStrict, PolicyDegrade:
+	default:
+		return nil, fmt.Errorf("serve: toolchain policy 只接受 strict|degrade，收到 %q", cfg.ToolchainPolicy)
+	}
+	if cfg.Toolchain == nil {
+		cfg.Toolchain = toolchain.NewNative()
+	}
 	s := &Server{
 		cfg:         cfg,
+		tc:          cfg.Toolchain,
 		bridges:     map[string]*eventledger.Bridge{},
 		lastBatches: map[string][]watch.Event{},
 	}
@@ -186,6 +206,11 @@ func (s *Server) Start(ctx context.Context) error {
 		}
 	}
 
+	// T-21c 工具鏈握手：版本指紋入帳本；strict 失配即拒絕啟動。
+	if err := s.attestAll(ctx, projects); err != nil {
+		return err
+	}
+
 	w, err := watch.NewWatcher(watch.Config{
 		Roots:        projects,
 		Debounce:     s.cfg.Debounce,
@@ -206,9 +231,10 @@ func (s *Server) Start(ctx context.Context) error {
 		Token:     s.cfg.Token,
 		Depth:     s.cfg.Depth,
 	}, s.jm, map[string]http.HandlerFunc{
-		"/api/claims": s.handleClaims,
-		"/api/watch":  s.handleWatchState,
-		"/api/rules":  s.handleRules,
+		"/api/claims":    s.handleClaims,
+		"/api/watch":     s.handleWatchState,
+		"/api/rules":     s.handleRules,
+		"/api/toolchain": s.handleToolchain,
 	})
 
 	listen := net.JoinHostPort(s.cfg.Addr, strconv.Itoa(s.cfg.Port))
