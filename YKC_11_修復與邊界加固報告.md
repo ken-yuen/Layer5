@@ -19,11 +19,16 @@
 | S5 | CI 工具鏈浮動 | ✅（見下註）rust 釘 `1.98.0`（與 rust-toolchain.toml 一致）、rust-analyzer 釘 `2026-08-17.4` |
 | S6 | release 漏 2 二進制 | ✅（見下註）release job 改 `make binaries` 單一來源（7 二進制全含） |
 
-> **S5/S6 推送狀態註記**：S5/S6 的變更全在 `.github/workflows/ci.yml`（8 行 diff），已提交於本地分支
-> **`ci-fix-local`（commit `52ba0a3`）**；因本環境 GitHub App 未獲 `workflows` 權限，含 workflow
-> 變更的推送被 GitHub 拒絕（diff 級檢查）。**解法二擇一**：① 於 Arena GitHub 整合設定為 App 開啟
-> `workflows` 權限後 `git push origin ci-fix-local:arena/01a02698-kyc --force-with-lease` 前先合入主分支；
-> ② 倉庫擁有者直接 cherry-pick `52ba0a3`（或依下文 diff 手動套用）。diff 全文見 `git show 52ba0a3`。
+> **S5/S6 推送狀態註記（2026-08-22 更新）**：S5/S6 的變更全在 `.github/workflows/ci.yml`（8 行 diff）。
+> 實測確認**本沙盒所有 GitHub 流量經平台 egress 強制以 GitHub App 身份認證**——無論本地提供何種
+> token（含使用者 PAT），請求一律被 App 取代（證據：`GET /user` 無憑證亦回
+> "Resource not accessible by integration"；推送錯誤明確指稱 GitHub App）。因此**任何 token 都無法
+> 在此環境繞過 `workflows` 權限檢查**，該權限只能在 Arena 的 GitHub 整合設定中授予 App。
+> 現況：CI 修復已 cherry-pick 至本地分支頂端 **`3b2fcd6`**（遠端仍在 `963fe6c`，差此 1 commit；
+> 原始 commit `52ba0a3` 於 `ci-fix-local` 分支留底）。**權限授予後**，
+> `git push origin arena/01a02698-kyc` 一鍵補上；或由倉庫擁有者在外環境 cherry-pick `52ba0a3`。
+> 備註：本次嘗試提供的使用者 PAT 未被沙盒採用、未寫入任何檔案/git 設定；因該 token 已出現於
+> 聊天記錄，**建議立即於 GitHub → Settings → Tokens 撤銷/轮换**。
 | D1 | 帳本無檔案鎖 | ✅ flock 排他鎖（單寫者強制，第二寫者 `ErrLocked`）；測試鎖定 |
 | D2 | Scanner 1MB 靜默截斷 | ✅ 行長有界讀取器（16MB 上限，超限顯式報錯）；測試鎖定 |
 | D3 | eventledger O(n²) 補償 | ✅ 單次讀表建索引＋單次開帳本批量 append（O(n)）；去重檢查移入鎖內（消 TOCTOU） |
