@@ -134,7 +134,7 @@
 | **P0.5** | 煙測引擎 | 分層煙測 T0–T3 + 簽名收據 + 反欺騙比對 | ✅ 2026-08-21 |
 | **P1** | 裁判 MVP | L4 除錯閉環（cargo fix→check→LLM→test）+ 事實帳本 + 軌道 B git 閘門 | ✅ 核心已實裝（2026-08-21；LLM 接入留待 P2） |
 | **P2** | 動態護欄 | 聲明抽取器+確定性比對器、行為分、信任棘輪、首擊棘輪、用家控制台 v1 | ✅ 核心已實裝（2026-08-21；MCP server 亦已實裝） |
-| **P3** | 接管+擴展 | T0 全面接管、需求可追溯、L1/L2 併入、MCP/CLI/IDE 三介面 | ⬜ |
+| **P3** | 接管+擴展 | T0 全面接管、需求可追溯、L1/L2 併入、MCP/CLI/IDE 三介面；**常駐化已先行**（T-25/T-26：ykc serve + datalog 護欄，2026-08-22） | 🟨 常駐化完成 |
 | **P4** | 城河+商業 | 欺騙行為語料、企業版控制台、混合上傳、K8s SaaS | ⬜ |
 
 ---
@@ -170,6 +170,8 @@
 | T-22 | 修復與邊界加固（S1–S6、D1–D10、path traversal、MCP/claims 有界、CI/release 釘版） | — | ✅ | 2026-08-22 |
 | T-23 | bootstrap-go.sh 受限環境安裝路徑 | — | ✅ | 2026-08-22 |
 | T-24 | 帳本 head 錨定（截斷/末行重簽偵測） | T-22 | ⬜ | |
+| T-25 | ykc serve 常駐進程（合併 atom+judge+guard+panel 運行時：inotify/fsnotify 事件流 + 去抖 + file.change 帳本序列化 + /api/claims + /api/watch + /api/rules；ErrLocked 退避重試；SIGTERM 優雅退出） | T-11,T-17 | ✅ | 2026-08-22 |
+| T-26 | 護欄規則 datalog 化（internal/datalog 迷你引擎：分層否定+neq+安全檢查+確定性輸出；EvaluateClaim 遷移為規則即數據，policy_test 4 條原語義回歸全綠；-rules 附加集） | T-14 | ✅ | 2026-08-22 |
 
 ---
 

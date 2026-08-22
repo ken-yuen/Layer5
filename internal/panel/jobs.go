@@ -1,6 +1,7 @@
 // 任務管理器：人類觸發的「控制層」——揀專案、啟動/停止 YKC 動作、實時日誌。
 // 與「唯讀觀察」分離：觀察永不改寫；控制由人類明確按下才執行。
-package main
+// （panel 包同時供 cmd/ykc-panel 與 cmd/ykc-serve 使用——唯一實作。）
+package panel
 
 import (
 	"crypto/rand"
@@ -65,7 +66,8 @@ type JobManager struct {
 	root   string // 面板掃描根（claims 路徑約束的範圍之一）
 }
 
-func newJobManager(bindir, root string) *JobManager {
+// NewJobManager 建立任務管理器（bindir = ykc 二進制目錄；root = 白名單掃描根）。
+func NewJobManager(bindir, root string) *JobManager {
 	return &JobManager{jobs: map[string]*Job{}, bindir: bindir, root: root}
 }
 
@@ -79,7 +81,7 @@ func newID() string {
 // Cargo 專案白名單」內的**同一目錄**（精確比對，不做 base 名模糊比對——
 // 同名專案可能撞車）——任意路徑一律拒收，杜絕經面板在攻擊者目錄觸發
 // cargo（build.rs → 任意代碼執行）。相對路徑以面板 root 為基準解析。
-func (m *JobManager) validateProject(project string) (string, error) {
+func (m *JobManager) ValidateProject(project string) (string, error) {
 	var cands []string
 	abs, err := filepath.Abs(project)
 	if err != nil {
@@ -90,7 +92,7 @@ func (m *JobManager) validateProject(project string) (string, error) {
 		cands = append(cands, filepath.Clean(filepath.Join(m.root, project)))
 	}
 	for _, c := range cands {
-		for _, d := range discoverCargoProjects(m.root, nil, 1) {
+		for _, d := range DiscoverCargoProjects(m.root, nil, 1) {
 			if d == c {
 				return d, nil
 			}
@@ -101,7 +103,7 @@ func (m *JobManager) validateProject(project string) (string, error) {
 
 // validateClaims 邊界加固：claims 檔必須在「專案目錄」或「面板根」之內
 // （防經面板讀取任意檔案）。
-func (m *JobManager) validateClaims(project, claims string) (string, error) {
+func (m *JobManager) ValidateClaims(project, claims string) (string, error) {
 	abs, err := filepath.Abs(claims)
 	if err != nil {
 		return "", fmt.Errorf("claims 路徑無法解析: %s", claims)
@@ -156,12 +158,12 @@ func (m *JobManager) argv(action, project, claims string) (string, []string, err
 // Start 啟動一個任務（非阻塞，立即回傳）。
 // 邊界：project 白名單驗證 + claims 路徑約束（見 validate*）。
 func (m *JobManager) Start(root, action, project, claims string) (*Job, error) {
-	validProject, err := m.validateProject(project)
+	validProject, err := m.ValidateProject(project)
 	if err != nil {
 		return nil, err
 	}
 	if claims != "" {
-		validClaims, err := m.validateClaims(validProject, claims)
+		validClaims, err := m.ValidateClaims(validProject, claims)
 		if err != nil {
 			return nil, err
 		}

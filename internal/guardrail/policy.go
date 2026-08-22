@@ -85,97 +85,13 @@ type evidenceState struct {
 	prevDiagnostic      *domain.Envelope
 }
 
+// EvaluateClaim 以「預設規則集」評估聲明。
+//
+// 遷移聲明（YKC_14）：違規判定自 v0.0.3 起全部由宣告式 Datalog 規則產生
+// （見 rules.go / dl.go）；本函數是唯一入口的薄包裝，不存在第二套判定實作。
+// 需要附加用家規則時走 EvaluateClaimWithRules（ykc serve -rules）。
 func EvaluateClaim(policy Policy, history []domain.Envelope, claimEvent domain.Envelope) Decision {
-	now := time.Now().UTC()
-	if policy.EvidenceFreshness <= 0 {
-		policy = StrictPolicy()
-	}
-	decision := Decision{At: now, Mode: "observe"}
-	claim, err := domain.DecodePayload[domain.AgentClaim](claimEvent)
-	if err != nil {
-		return failClosed(now, "cannot decode agent claim: "+err.Error())
-	}
-	decision.ClaimKind = string(claim.Kind)
-	state, err := buildEvidenceState(history)
-	if err != nil {
-		return failClosed(now, "cannot build evidence state: "+err.Error())
-	}
-	fresh := func(e domain.Envelope) bool {
-		return !e.At.IsZero() && now.Sub(e.At) <= policy.EvidenceFreshness && (claimEvent.Epoch == "" || e.Epoch == claimEvent.Epoch)
-	}
-	latestFreshCommand := func(classes ...domain.CommandClass) (domain.Envelope, domain.CommandResult, bool) {
-		var best domain.Envelope
-		var bestResult domain.CommandResult
-		found := false
-		for _, class := range classes {
-			e, ok := state.lastCommandByClass[class]
-			if !ok || !fresh(e) || state.changedAfter(e.At) {
-				continue
-			}
-			cr, err := domain.DecodePayload[domain.CommandResult](e)
-			if err != nil {
-				continue
-			}
-			if !found || e.At.After(best.At) {
-				found = true
-				best = e
-				bestResult = cr
-			}
-		}
-		return best, bestResult, found
-	}
-
-	switch claim.Kind {
-	case domain.ClaimTestsPassed:
-		if e, cr, ok := latestFreshCommand(domain.CommandClassTest, domain.CommandClassSmoke); ok {
-			if !cr.Succeeded() {
-				addCritical(&decision, ViolationFakeTestClaim, "agent claimed tests passed while the latest fresh test/smoke evidence failed", e.ID)
-			}
-		} else {
-			addCritical(&decision, ViolationFakeTestClaim, "agent claimed tests passed without fresh successful test/smoke evidence for the current epoch")
-		}
-	case domain.ClaimBuildPassed:
-		if e, cr, ok := latestFreshCommand(domain.CommandClassCheck, domain.CommandClassBuild, domain.CommandClassSmoke); ok {
-			if !cr.Succeeded() {
-				addCritical(&decision, ViolationFakeBuildClaim, "agent claimed build passed while the latest fresh check/build/smoke evidence failed", e.ID)
-			}
-		} else {
-			addCritical(&decision, ViolationFakeBuildClaim, "agent claimed build passed without fresh successful check/build/smoke evidence for the current epoch")
-		}
-	case domain.ClaimNoErrors:
-		if state.lastDiagnostic != nil {
-			diag, derr := domain.DecodePayload[domain.DiagnosticSummary](*state.lastDiagnostic)
-			if derr != nil {
-				addCritical(&decision, ViolationEvaluationFailed, "cannot decode latest diagnostics: "+derr.Error(), state.lastDiagnostic.ID)
-			} else if diag.HasBlockingErrors() {
-				addCritical(&decision, ViolationFakeNoErrorsClaim, "agent claimed no errors while latest diagnostic summary still contains blocking errors", state.lastDiagnostic.ID)
-			}
-		} else if _, cr, ok := latestFreshCommand(domain.CommandClassCheck, domain.CommandClassBuild, domain.CommandClassSmoke); !ok || !cr.Succeeded() {
-			addCritical(&decision, ViolationFakeNoErrorsClaim, "agent claimed no errors without diagnostics or fresh successful build evidence")
-		}
-	case domain.ClaimWorkDone:
-		if !state.hasCurrentEpochWork(claimEvent.Epoch) {
-			addCritical(&decision, ViolationUnsupportedDoneClaim, "agent claimed work done without file-change, command, or diagnostic evidence in the current epoch")
-		}
-	default:
-		addHigh(&decision, ViolationUnsupportedDoneClaim, "unknown claim kind must be treated as unsupported until evidence is supplied")
-	}
-
-	if state.lastDiagnostic != nil && state.prevDiagnostic != nil {
-		last, lerr := domain.DecodePayload[domain.DiagnosticSummary](*state.lastDiagnostic)
-		prev, perr := domain.DecodePayload[domain.DiagnosticSummary](*state.prevDiagnostic)
-		if lerr == nil && perr == nil && last.BuildBlockingCount > prev.BuildBlockingCount {
-			decision.Violations = append(decision.Violations, Violation{
-				Code:     ViolationDiagnosticsRegression,
-				Severity: SeverityHigh,
-				Reason:   "blocking diagnostic count increased after recent work",
-				Evidence: []string{state.prevDiagnostic.ID, state.lastDiagnostic.ID},
-			})
-		}
-	}
-
-	applyActions(&decision)
-	return decision
+	return EvaluateClaimWithRules(policy, history, claimEvent, nil)
 }
 
 func buildEvidenceState(history []domain.Envelope) (evidenceState, error) {
@@ -246,14 +162,6 @@ func (s evidenceState) hasCurrentEpochWork(epoch string) bool {
 		}
 	}
 	return s.lastDiagnostic != nil && s.lastDiagnostic.Epoch == epoch
-}
-
-func addCritical(d *Decision, code ViolationCode, reason string, evidence ...string) {
-	d.Violations = append(d.Violations, Violation{Code: code, Severity: SeverityCritical, Reason: reason, Evidence: compact(evidence)})
-}
-
-func addHigh(d *Decision, code ViolationCode, reason string, evidence ...string) {
-	d.Violations = append(d.Violations, Violation{Code: code, Severity: SeverityHigh, Reason: reason, Evidence: compact(evidence)})
 }
 
 func applyActions(d *Decision) {

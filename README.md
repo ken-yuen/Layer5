@@ -13,6 +13,7 @@
 # 方式 B：命令行（原生，無需容器）
 make verify-all     # 一鍵跑全部功能實測
 make panel          # 啟動 YKC Trust Console（控制 + 觀察台）
+make serve          # 啟動 ykc-serve 常駐進程（監看+聲明評估+面板合一）
 
 # 方式 C：容器（Podman 或 Docker 通用）
 make image && make up
@@ -35,10 +36,22 @@ make image && make up
 - **請求體限長**（1MB，`MaxBytesReader`）。
 - 觀察端（`/api/state` 等）唯讀、無需 token，可安全供 AI agent 拉取。
 
+## ykc serve — 常駐進程（YKC_14）
+
+`make serve` 或 `./bin/ykc-serve -root . -port 8080` 啟動單一常駐進程，合併四個 CLI 的**運行時監督面**：
+
+- **監看**（atom 之職）：inotify（Linux；他平台 stat 輪詢）遞迴監看專案 → 去抖（預設 300ms，最後操作勝）→ `file.change` 事件批次入事實帳本（hash 鏈）；`.ykc`/`target`/`.git` 必排（防自身寫入回環）。
+- **聲明評估**（guard 之職）：`POST /api/claims {project, kind, text, run_smoke?}` → **宣告式 Datalog 護欄**（規則即數據，`/api/rules` 可審計全文）→ 裁決入帳本 + enforcement 落盤。
+- **觸發**（judge 之職）：`POST /api/jobs`（既有面板任務）或 `-auto-judge`（.rs 變更批次後單飛觸發 ykc-judge）。
+- **面板**（panel 之職）：全部既有端點（/api/state、/api/raw、/api/projects、/api/jobs、/healthz）+ 新增 `/api/watch`（監看狀態）。
+- 四個 CLI 全部保留（git 閘門、MCP、一次性除錯）；ykc-guard 的 MCP 維持獨立 stdio 進程。
+- 帳本單一寫者紀律：serve 與 judge 子行程共用 `.ykc/ledger.jsonl`，衝突時 serve 以指數退避重試。
+
 ## 文件索引
 
 | 文件 | 內容 |
 |---|---|
+| **`YKC_14_常駐進程與宣告式護欄報告.md`** | **ykc serve 合併 + 護欄 datalog 化設計、驗收與紀律** |
 | **`YKC_00_構圖與路線圖.md`** | **總體構圖 + 里程碑 + 進度追蹤表（進度參照物）** |
 | **`YKC_01_容器化方案分析.md`** | Docker 類替代品深度分析（Podman/gVisor/Firecracker/Nix…）與建議 |
 | `YKC_YieldKeyCode_深度分析報告.md` | 技術五層、依賴清單、整體評分（v1.0） |
@@ -66,7 +79,7 @@ make image && make up
 ├── YKC_07_新增功能技術債審計與優化報告.md
 ├── YKC_08_eventstore_ledger橋接設計與實作.md
 ├── YKC_09_panel工作視覺與審計健康優化報告.md
-├── cmd/                           ← 四個命令（單一 module，共用 internal/）
+├── cmd/                           ← 八個命令（單一 module，共用 internal/）
 │   ├── ykc-smoke/main.go          ← 煙測引擎 ✅
 │   ├── ykc-atom/main.go           ← 原子監控 + 動態護欄 enforcement CLI ✅
 │   ├── ykc-precompile/             ← 沙盒 rustc/cargo 預編譯 ✅
@@ -82,10 +95,8 @@ make image && make up
 │   │   ├── mcp.go       (最小 MCP server)
 │   │   └── guardledger.go (帳本路徑包裝)
 │   ├── ykc-lsp/main.go            ← LSP 客戶端 ✅
-│   └── ykc-panel/                 ← Trust Console 唯讀觀察台 ✅
-│       ├── main.go      (HTTP 伺服器 + JSON API)
-│       ├── state.go     (狀態聚合：專案/事實/信任/收據)
-│       └── dashboard.html (內嵌面板，零外部依賴)
+│   ├── ykc-panel/main.go          ← Trust Console 薄殼（實作在 internal/panel）✅
+│   └── ykc-serve/main.go          ← 常駐進程（監看+聲明評估+面板合一；internal/serve）✅
 ├── internal/                      ← 共享包（去重後唯一實作）
 │   ├── ledger/ledger.go           ← 事實帳本（judge/guard 共用，消除 drift）
 │   ├── atomicfile/                 ← 原子寫入 primitives
@@ -95,6 +106,10 @@ make image && make up
 │   ├── guardrail/                  ← 行為驅動動態護欄 policy
 │   ├── enforcement/                ← block/smoke takeover 狀態落盤
 │   ├── smoke/                      ← reusable smoke runner
+│   ├── watch/                       ← 事件監看（inotify/poll + 去抖 + 過濾）
+│   ├── datalog/                     ← 迷你 Datalog 引擎（分層否定；護欄規則用）
+│   ├── panel/                       ← Trust Console 唯一實作（ykc-panel 與 ykc-serve 共用）
+│   └── serve/                       ← 常駐進程核心（事件循環/claims/auto-judge）
 │   ├── sandbox/                    ← gVisor/bwrap/native execution abstraction
 │   ├── precompile/                 ← cargo check / rustc metadata pipeline
 │   └── rustutil/rustutil.go       ← 執行/解析/簽名/雜湊通用工具

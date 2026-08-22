@@ -81,6 +81,7 @@ jobs:
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-panel       ./cmd/ykc-panel
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-atom        ./cmd/ykc-atom
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-precompile  ./cmd/ykc-precompile
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-serve       ./cmd/ykc-serve
           # L5 引擎（ykc-judge/ykc-guard 的幾何解釋依賴; 執行檔旁 l5/chordlaw 自動探測）
           mkdir -p dist/ykc/l5
           cp -r l5/chordlaw dist/ykc/l5/

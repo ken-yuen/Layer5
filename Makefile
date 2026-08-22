@@ -14,7 +14,7 @@
 #   make health   — 全專案健檢（vet + build + 回歸）
 #   make image   — 建置 OCI 鏡像（Podman 優先，回退 Docker）
 #   make up      — 本機容器一鍵運行
-.PHONY: setup verify-all build binaries smoke atom precompile judge lsp guard guard-verify guard-score guard-mcp panel health image up clean l5-test borrow-test
+.PHONY: setup verify-all build binaries smoke atom precompile judge lsp guard guard-verify guard-score guard-mcp panel serve health image up clean l5-test borrow-test
 
 # 工具鏈位置：預設 $HOME/.ykc（零 sudo）；可用環境變數覆寫（如 YKC_HOME=/opt/ykc）
 YKC_HOME ?= $(HOME)/.ykc
@@ -45,6 +45,7 @@ verify-all: build
 	@go build -o bin/ykc-guard ./cmd/ykc-guard
 	@go build -o bin/ykc-lsp ./cmd/ykc-lsp
 	@go build -o bin/ykc-precompile ./cmd/ykc-precompile
+	@go build -o bin/ykc-serve ./cmd/ykc-serve
 	@echo "=============================================================="
 	@echo " ① 煙測引擎（健康專案，無謊報）→ 預期 PASS"
 	@./bin/ykc -dir ./demo-rust-cli -key ykc-dev-key | grep 整體判定
@@ -66,6 +67,9 @@ verify-all: build
 	@./bin/ykc-lsp ./demo-semantic-cli/src/main.rs rust-analyzer 2>/dev/null | head -1
 	@echo " ⑩ rustc/cargo 預編譯 → 預期 PASS"
 	@./bin/ykc-precompile -project ./demo-rust-cli -sandbox native -allow-native -json=false | head -1
+	@echo " ⑪ ykc serve 常駐進程 → 預期 healthz=ok；無證據聲明被 datalog 護欄駁回"
+	@go build -o bin/ykc-serve ./cmd/ykc-serve
+	@./bin/ykc-serve -root . -port 18099 >/tmp/ykc-serve-verify.log 2>&1 & SERVER_PID=$$!; 	  for i in 1 2 3 4 5 6 7 8 9 10; do curl -sf http://127.0.0.1:18099/healthz >/dev/null 2>&1 && break; sleep 0.5; done; 	  test "$$(curl -sf http://127.0.0.1:18099/healthz)" = "ok" || { echo "serve healthz FAIL"; cat /tmp/ykc-serve-verify.log; kill $$SERVER_PID; exit 1; }; 	  echo "  healthz OK"; 	  CLAIMS_RESP=$$(curl -s -X POST http://127.0.0.1:18099/api/claims -d '{"project":"./demo-broken-cli","kind":"tests_passed"}'); 	  echo "$$CLAIMS_RESP" | grep -q fake_test_claim && echo "  datalog 護欄駁回 OK" || { echo "claims guardrail FAIL: $$CLAIMS_RESP"; kill $$SERVER_PID; exit 1; }; 	  curl -sf http://127.0.0.1:18099/api/watch | grep -q '"backend"' && echo "  /api/watch OK" || { echo "api/watch FAIL"; kill $$SERVER_PID; exit 1; }; 	  kill $$SERVER_PID; sleep 0.5; 	  (kill -0 $$SERVER_PID 2>/dev/null && { echo "serve 未優雅退出"; exit 1; }) || echo "  優雅退出 OK"
 	@echo "=============================================================="
 	@echo "✅ 全功能實測完成（②⑦ 的 FAIL/TAKEOVER 為反欺騙的預期行為）"
 
@@ -83,6 +87,7 @@ binaries:
 	go build -o bin/ykc-panel ./cmd/ykc-panel
 	go build -o bin/ykc-atom ./cmd/ykc-atom
 	go build -o bin/ykc-precompile ./cmd/ykc-precompile
+	go build -o bin/ykc-serve ./cmd/ykc-serve
 
 atom:
 	mkdir -p bin
@@ -117,6 +122,10 @@ guard-mcp: guard
 
 panel: binaries
 	./bin/ykc-panel -root . -port 8080
+
+# 常駐進程（YKC_14）：監看+聲明評估+面板合一（atom+judge+guard+panel 的運行時面）
+serve: binaries
+	./bin/ykc-serve -root . -port 8080
 
 smoke: build
 	./bin/ykc -dir ./demo-rust-cli -claims ./claims.json -key $${YKC_KEY:-ykc-dev-key}

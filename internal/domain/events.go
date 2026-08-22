@@ -22,6 +22,8 @@ const (
 	EventClaimVerdict EventKind = "claim.verdict"
 	EventTrustEvent   EventKind = "trust.event"
 	EventTrustReset   EventKind = "trust.reset"
+	// 常駐監看事件（ykc serve；YKC_14）：去抖後的檔案變更批次。
+	EventFileChange EventKind = "file.change"
 )
 
 // Envelope is the immutable unit persisted by the event store.
@@ -123,4 +125,16 @@ type DiagnosticSummary struct {
 
 func (d DiagnosticSummary) HasBlockingErrors() bool {
 	return d.ErrorCount > 0 || d.BuildBlockingCount > 0
+}
+
+// FileChangeFile 是檔案變更批次內的單一條目（路徑相對於專案根）。
+type FileChangeFile struct {
+	Path string `json:"path"` // 相對路徑（'/' 分隔）
+	Op   string `json:"op"`   // create|write|remove|rename
+}
+
+// FileChangeBatch 是 EventFileChange 的 payload：去抖後的一批變更。
+type FileChangeBatch struct {
+	Files   []FileChangeFile `json:"files"`
+	Backend string           `json:"backend,omitempty"` // inotify|poll（事件來源後端）
 }

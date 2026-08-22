@@ -1,5 +1,5 @@
 // 狀態聚合：掃描專案、解析事實帳本、推導信任等級、讀收據。
-package main
+package panel
 
 import (
 	"encoding/json"
@@ -303,7 +303,7 @@ func collectState(root string, extra []string, depth int) GlobalState {
 
 // discoverCargoProjects 找出可作為「運行目標」的專案（含 Cargo.toml）。
 // discoverCargoProjects 找出可作為「運行目標」的專案（含 Cargo.toml；根 + 至多 depth 層）。
-func discoverCargoProjects(root string, extra []string, depth int) []string {
+func DiscoverCargoProjects(root string, extra []string, depth int) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(d string) {
