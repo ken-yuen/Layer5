@@ -11,7 +11,7 @@
 //
 //	claim.kind(K)            當前聲明種類（work_done|tests_passed|build_passed|no_errors|…）
 //	claim.unknown            當前聲明屬未知種類（不在四種已知之列）
-//	evidence.latest(G)       邏輯證據類 G（"test"=test+smoke；"build"=check+build+smoke）
+//	evidence.latest(G)       邏輯證據類 G（"test" = test/smoke；"build" = check/build/smoke）
 //	                         存在「新鮮且同 epoch 且其後無檔案變更」的最新命令
 //	evidence.latest_ok(G)    同上，且該最新命令成功
 //	evidence.latest_failed(G, EVID) 同上，且該最新命令失敗（攜事件 id 作證據）
@@ -22,6 +22,7 @@
 //	epoch.has_work           當前 epoch 存在工作證據（檔案變更/命令/診斷）
 //
 // 違規輸出關係：violation(Code, Severity, Reason, Evid1, Evid2)——空證據以 "" 表。
+
 package guardrail
 
 import (

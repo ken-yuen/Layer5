@@ -102,7 +102,7 @@ func BuildMuxWith(o Options, jm *JobManager, extra map[string]http.HandlerFunc) 
 				http.Error(w, "需要 action 與 project", http.StatusBadRequest)
 				return
 			}
-			j, err := jm.Start(o.Root, req.Action, req.Project, req.Claims)
+			j, err := jm.Start(req.Action, req.Project, req.Claims)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return

@@ -63,28 +63,28 @@ type Bus interface {
 
 // ---------- 五層窄介面 ----------
 
-// L1：依賴版本對齊與衝突風險預警。
+// DependencyChecker 是 L1：依賴版本對齊與衝突風險預警。
 type DependencyChecker interface {
 	Check(ctx context.Context, manifest []byte) (DependencyReport, error)
 }
 
-// L2：遍歷專案結構並統計。
+// StructureScanner 是 L2：遍歷專案結構並統計。
 type StructureScanner interface {
 	Scan(ctx context.Context, files []string) (StructureReport, error)
 }
 
-// L3：原子監聽 + 動態護欄（訂閱事實流，產出護欄動作）。
+// GuardrailEngine 是 L3：原子監聽 + 動態護欄（訂閱事實流，產出護欄動作）。
 type GuardrailEngine interface {
 	Observe(facts <-chan Fact)
 	Evaluate(ctx context.Context, f Fact) (GuardAction, error)
 }
 
-// L4：沙盒預編譯除錯（產生簽名收據）。
+// DebugEngine 是 L4：沙盒預編譯除錯（產生簽名收據）。
 type DebugEngine interface {
 	CheckAndFix(ctx context.Context, project string) (Receipt, error)
 }
 
-// L5：borrow/生命週期代數仿構（datalog + 節點圖）。
+// BorrowAnalyzer 是 L5：borrow/生命週期代數仿構（datalog + 節點圖）。
 type BorrowAnalyzer interface {
 	Analyze(ctx context.Context, factsPath string) (BorrowGraph, error)
 }

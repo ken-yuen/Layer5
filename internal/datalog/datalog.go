@@ -88,7 +88,7 @@ type Bounds struct {
 	MaxRounds       int
 }
 
-// DefaultBounds：護欄規模下的寬鬆上限（觸頂即程式錯誤，顯式報錯）。
+// DefaultBounds 是護欄規模下的寬鬆上限（觸頂即程式錯誤，顯式報錯）。
 var DefaultBounds = Bounds{MaxDerivedFacts: 200_000, MaxRounds: 10_000}
 
 // NewProgram 建立空程式。

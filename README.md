@@ -52,6 +52,8 @@ make image && make up
 | 文件 | 內容 |
 |---|---|
 | **`YKC_14_常駐進程與宣告式護欄報告.md`** | **ykc serve 合併 + 護欄 datalog 化設計、驗收與紀律** |
+| **`YKC_15_知識庫與代理上下文引擎方案.md`** | **嵌入式唯讀知識庫：518 錯誤碼（例子+正解）、54 規則抽象、官方教學文檔、精準檢索/依賴項圖/上下文緩存/原子化** |
+| **`YKC_16_全代碼健檢修復與後續開發規劃.md`** | **全代碼健檢（staticcheck/vet/race 零告警）、錯漏債重死修復清單、後續 roadmap** |
 | **`YKC_00_構圖與路線圖.md`** | **總體構圖 + 里程碑 + 進度追蹤表（進度參照物）** |
 | **`YKC_01_容器化方案分析.md`** | Docker 類替代品深度分析（Podman/gVisor/Firecracker/Nix…）與建議 |
 | `YKC_YieldKeyCode_深度分析報告.md` | 技術五層、依賴清單、整體評分（v1.0） |
@@ -96,7 +98,8 @@ make image && make up
 │   │   └── guardledger.go (帳本路徑包裝)
 │   ├── ykc-lsp/main.go            ← LSP 客戶端 ✅
 │   ├── ykc-panel/main.go          ← Trust Console 薄殼（實作在 internal/panel）✅
-│   └── ykc-serve/main.go          ← 常駐進程（監看+聲明評估+面板合一；internal/serve）✅
+│   ├── ykc-serve/main.go          ← 常駐進程（監看+聲明評估+面板合一；internal/serve）✅
+│   └── ykc-know/main.go           ← 嵌入式唯讀知識庫 CLI（錯誤碼/規則/教學文檔檢索）✅
 ├── internal/                      ← 共享包（去重後唯一實作）
 │   ├── ledger/ledger.go           ← 事實帳本（judge/guard 共用，消除 drift）
 │   ├── atomicfile/                 ← 原子寫入 primitives
@@ -112,6 +115,13 @@ make image && make up
 │   └── serve/                       ← 常駐進程核心（事件循環/claims/auto-judge）
 │   ├── sandbox/                    ← gVisor/bwrap/native execution abstraction
 │   ├── precompile/                 ← cargo check / rustc metadata pipeline
+│   ├── kb/                         ← 嵌入式唯讀知識庫 + 代理上下文引擎（YKC_15）
+│   │   ├── store.go                ← 內容定址唯讀 Store + blob 建庫/開檔（sha256 防竄改）
+│   │   ├── index.go / token.go     ← 倒排索引 + BM25 + char-shingle 模糊檢索
+│   │   ├── graph.go                ← 依賴項圖（展開/反向/SCC）
+│   │   ├── cache.go                ← 代理上下文緩存（LRU）
+│   │   ├── context.go              ← Retrieve 管線（檢索→展開→預算截斷→渲染）
+│   │   └── data/*.json.gz          ← 518 錯誤碼 + 54 規則 + 官方教學文檔（go:embed）
 │   └── rustutil/rustutil.go       ← 執行/解析/簽名/雜湊通用工具
 ├── core/interfaces.go             ← 五層窄介面 + Executor 骨架 ✅
 ├── l5/chordlaw/                   ← L5 引擎：vendored ChordLaw（Datalog 借用檢查器，26/26 rustc oracle）
@@ -150,6 +160,24 @@ borrow 錯誤是 LLM 代理最難修的一類——因為代理「睇唔見生�
 ```bash
 make l5-test      # vendored ChordLaw 上游 19 項回歸
 make borrow-test  # Go 接線層測試（拓撲/規則卡/17 範例 golden）
+```
+
+## 嵌入式唯讀知識庫（2026-08-22 新增，YKC_15）
+
+把代理最需要的 Rust 知識做成**零依賴、內容定址、唯讀**的知識面（683 原子）：
+
+- **資料**：rustc 官方**全部 518 條錯誤碼**（含錯誤範例 + 正解）、**54 條規則抽象**（17 領域）、**官方教學文檔**（19 部 / 91 章）——以 `go:embed` 編入二進制，離線可用。
+- **精準檢索**：精確碼短路 → BM25（程式碼也參與檢索）→ char-shingle 模糊（拼錯可召回）→ 領域加權；全決定論。
+- **代理優化**：`Retrieve()` = 檢索 → 依賴項圖展開（答案+規則+出處閉包）→ 預算截斷 → 可貼入提示的 Markdown；LRU 上下文緩存以「查詢指紋+資料版本」為鍵。
+- **唯讀資料庫**：`ykc-know build` 產出單一 blob（sha256 防竄改），開檔即驗；HTTP 端點全 GET。
+- 已掛入 `ykc serve`（`/api/know/*`，唯讀無 token）與獨立 `ykc-know serve`（`/api/kb/*`）。
+
+```bash
+make know-test    # 11 項驗收測試
+make know         # 建 ykc-know + stats
+./bin/ykc-know search "cannot borrow as mutable"   # 精準檢索
+./bin/ykc-know graph E0382 -depth 2                # 依賴項圖展開
+./bin/ykc-know build -o bin/kb.ykc                 # 建唯讀 blob 資料庫
 ```
 
 ## 執行架構（「任何裝置可運行」四層）

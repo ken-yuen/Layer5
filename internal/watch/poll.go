@@ -3,6 +3,7 @@
 // 取捨：輪詢間隔預設 250ms——對「代理改檔 → 護欄反應」的秒級迴路足夠，
 // 且零依賴、跨平台。mtime+size 差分；rename 以 remove+create 近似（已知限制，文檔註明）。
 // 事件一律攜帶絕對路徑（多 root 場景由上層按前綴歸屬專案）。
+
 package watch
 
 import (

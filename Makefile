@@ -14,7 +14,7 @@
 #   make health   — 全專案健檢（vet + build + 回歸）
 #   make image   — 建置 OCI 鏡像（Podman 優先，回退 Docker）
 #   make up      — 本機容器一鍵運行
-.PHONY: setup verify-all build binaries smoke atom precompile judge lsp guard guard-verify guard-score guard-mcp panel serve health image up clean l5-test borrow-test
+.PHONY: setup verify-all build binaries smoke atom precompile judge lsp guard guard-verify guard-score guard-mcp panel serve health image up clean l5-test borrow-test know know-test know-build
 
 # 工具鏈位置：預設 $HOME/.ykc（零 sudo）；可用環境變數覆寫（如 YKC_HOME=/opt/ykc）
 YKC_HOME ?= $(HOME)/.ykc
@@ -88,6 +88,7 @@ binaries:
 	go build -o bin/ykc-atom ./cmd/ykc-atom
 	go build -o bin/ykc-precompile ./cmd/ykc-precompile
 	go build -o bin/ykc-serve ./cmd/ykc-serve
+	go build -o bin/ykc-know ./cmd/ykc-know
 
 atom:
 	mkdir -p bin
@@ -137,6 +138,29 @@ l5-test:
 # L5 Go 接線層測試（拓撲/規則卡/golden；python3 缺席時 E2E 自動 Skip）
 borrow-test:
 	go test ./internal/borrow/...
+
+# ── 知識庫 + 代理上下文引擎（YKC_15）──────────────────────────────
+# 嵌入式唯讀知識庫：518 條 rustc 錯誤碼（含錯誤範例+正解）、54 條規則抽象、
+# 官方教學文檔（19 部 / 91 章）；精準檢索 + 依賴項圖 + 上下文緩存 + 預算截斷。
+know-test:
+	go test ./internal/kb/...
+
+know:
+	mkdir -p bin
+	go build -o bin/ykc-know ./cmd/ykc-know
+	./bin/ykc-know stats
+
+# 建單一唯讀 blob 資料庫（開檔 sha256 校驗防竄改）
+know-build:
+	mkdir -p bin
+	go build -o bin/ykc-know ./cmd/ykc-know
+	./bin/ykc-know build -o bin/kb.ykc
+
+# 唯讀 HTTP API（供 AI agent 拉取）
+know-serve:
+	mkdir -p bin
+	go build -o bin/ykc-know ./cmd/ykc-know
+	./bin/ykc-know serve -addr 127.0.0.1 -port 8090
 
 health: binaries
 	@echo "== go vet =="; go vet ./...

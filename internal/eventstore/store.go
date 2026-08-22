@@ -1,3 +1,4 @@
+// Package eventstore 是 immutable per-event JSON 事件庫（原子 rename 寫入，事件要嘛缺席要嘛完整）。
 package eventstore
 
 import (

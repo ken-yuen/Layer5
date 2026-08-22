@@ -39,6 +39,7 @@ import (
 	"ykc/internal/enforcement"
 	"ykc/internal/eventledger"
 	"ykc/internal/guardrail"
+	"ykc/internal/kb"
 	"ykc/internal/ledger"
 	"ykc/internal/panel"
 	"ykc/internal/smoke"
@@ -75,6 +76,10 @@ type Server struct {
 	lastBatches map[string][]watch.Event // 專案 → 最近一次去抖批次
 	ruleSource  string                   // 附加規則來源描述
 	httpSrv     *http.Server
+
+	kbOnce  sync.Once
+	kbStore *kb.Store
+	kbErr   error
 }
 
 // New 驗證配置並載入附加規則（尚未啟動）。
@@ -209,6 +214,7 @@ func (s *Server) Start(ctx context.Context) error {
 		"/api/claims": s.handleClaims,
 		"/api/watch":  s.handleWatchState,
 		"/api/rules":  s.handleRules,
+		"/api/know/":  s.handleKnow,
 	})
 
 	listen := net.JoinHostPort(s.cfg.Addr, strconv.Itoa(s.cfg.Port))
@@ -346,7 +352,7 @@ func (s *Server) autoJudge(project string) {
 			return
 		}
 	}
-	if _, err := s.jm.Start(s.cfg.Root, "judge", project, ""); err != nil {
+	if _, err := s.jm.Start("judge", project, ""); err != nil {
 		log.Printf("serve: auto-judge 觸發失敗（%s）: %v", project, err)
 	}
 }
@@ -567,6 +573,22 @@ func (s *Server) ruleSourceLocked() string {
 	return s.ruleSource
 }
 
+// handleKnow：唯讀知識庫端點（Rust 錯誤碼/規則抽象/官方教學文檔），
+// 供 AI agent 拉取——與 /api/state 同為「觀察（唯讀）」面，無需 token。
+// 路徑 /api/know/* → 轉發至 kb.Handler 的 /api/kb/*。
+func (s *Server) handleKnow(w http.ResponseWriter, r *http.Request) {
+	s.kbOnce.Do(func() {
+		s.kbStore, s.kbErr = kb.Open()
+	})
+	if s.kbErr != nil {
+		http.Error(w, "kb unavailable: "+s.kbErr.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	r2 := r.Clone(r.Context())
+	r2.URL.Path = "/api/kb" + strings.TrimPrefix(r.URL.Path, "/api/know")
+	kb.Handler(s.kbStore).ServeHTTP(w, r2)
+}
+
 // Handler 構建 HTTP handler（測試用；與 Start 同一路由）。
 func (s *Server) Handler() http.Handler {
 	s.jm = panel.NewJobManager(s.cfg.BinDir, s.cfg.Root)
@@ -580,6 +602,7 @@ func (s *Server) Handler() http.Handler {
 		"/api/claims": s.handleClaims,
 		"/api/watch":  s.handleWatchState,
 		"/api/rules":  s.handleRules,
+		"/api/know/":  s.handleKnow,
 	})
 }
 

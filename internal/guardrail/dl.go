@@ -6,6 +6,7 @@
 //   - 時間/epoch/新鮮度屬「事實計算」，留在 Go 抽取器（datalog 不做時間運算）；
 //     語意上等價於舊 evidenceState 邏輯（buildEvidenceState 原樣保留共用）。
 //   - 規則求值失敗 = 裁判故障 → fail-closed 接管（與解碼失敗同等對待）。
+
 package guardrail
 
 import (

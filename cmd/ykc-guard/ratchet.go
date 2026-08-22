@@ -82,7 +82,7 @@ func applyRatchet(from TrustLevel, v Verdict) (TrustLevel, RatchetEvent) {
 	return to, ev
 }
 
-// ApplyAll：對全部判決依序套用棘輪。
+// ApplyAll 對全部判決依序套用棘輪。
 func ApplyAll(from TrustLevel, verdicts []Verdict) (TrustLevel, []RatchetEvent) {
 	level := from
 	var events []RatchetEvent

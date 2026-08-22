@@ -1,3 +1,4 @@
+// Package monitor 是 workspace 快照與差分（逐檔 sha256 + 整體 digest）。
 package monitor
 
 import (

@@ -1,3 +1,4 @@
+// Package atomicfile 提供跨程序的原子寫入 primitives（暫存檔 + fsync + rename + 目錄 fsync）。
 package atomicfile
 
 import (

@@ -1,3 +1,4 @@
+// Package enforcement 把護欄裁決落盤為執行期狀態（block/smoke takeover）。
 package enforcement
 
 import (

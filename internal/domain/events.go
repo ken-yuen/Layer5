@@ -1,3 +1,4 @@
+// Package domain 定義 YKC 事件域的穩定 wire 型別（事件種類、信封、聲明、命令結果）。
 package domain
 
 import (

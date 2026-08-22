@@ -1,3 +1,4 @@
+// Package guardrail 是行為驅動的動態護欄：聲明評估、宣告式 Datalog 規則與裁決。
 package guardrail
 
 import (

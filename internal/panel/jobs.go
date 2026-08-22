@@ -1,6 +1,7 @@
 // 任務管理器：人類觸發的「控制層」——揀專案、啟動/停止 YKC 動作、實時日誌。
 // 與「唯讀觀察」分離：觀察永不改寫；控制由人類明確按下才執行。
 // （panel 包同時供 cmd/ykc-panel 與 cmd/ykc-serve 使用——唯一實作。）
+
 package panel
 
 import (
@@ -77,7 +78,7 @@ func newID() string {
 	return hex.EncodeToString(b)
 }
 
-// validateProject 邊界加固（S1 核心）：任務的 project 必須解析到「已發現的
+// ValidateProject 邊界加固（S1 核心）：任務的 project 必須解析到「已發現的
 // Cargo 專案白名單」內的**同一目錄**（精確比對，不做 base 名模糊比對——
 // 同名專案可能撞車）——任意路徑一律拒收，杜絕經面板在攻擊者目錄觸發
 // cargo（build.rs → 任意代碼執行）。相對路徑以面板 root 為基準解析。
@@ -101,7 +102,7 @@ func (m *JobManager) ValidateProject(project string) (string, error) {
 	return "", fmt.Errorf("project 不在已發現專案清單內（請先 GET /api/projects）: %s", project)
 }
 
-// validateClaims 邊界加固：claims 檔必須在「專案目錄」或「面板根」之內
+// ValidateClaims 邊界加固：claims 檔必須在「專案目錄」或「面板根」之內
 // （防經面板讀取任意檔案）。
 func (m *JobManager) ValidateClaims(project, claims string) (string, error) {
 	abs, err := filepath.Abs(claims)
@@ -156,8 +157,8 @@ func (m *JobManager) argv(action, project, claims string) (string, []string, err
 }
 
 // Start 啟動一個任務（非阻塞，立即回傳）。
-// 邊界：project 白名單驗證 + claims 路徑約束（見 validate*）。
-func (m *JobManager) Start(root, action, project, claims string) (*Job, error) {
+// 邊界：project 白名單驗證 + claims 路徑約束（見 ValidateProject / ValidateClaims）。
+func (m *JobManager) Start(action, project, claims string) (*Job, error) {
 	validProject, err := m.ValidateProject(project)
 	if err != nil {
 		return nil, err

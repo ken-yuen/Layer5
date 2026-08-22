@@ -1,4 +1,5 @@
 // 狀態聚合：掃描專案、解析事實帳本、推導信任等級、讀收據。
+
 package panel
 
 import (
@@ -23,7 +24,7 @@ type FactView struct {
 	Seq     uint64          `json:"seq"`
 	Type    string          `json:"type"`
 	Actor   string          `json:"actor"`
-	Ts      string          `json:"ts,omitempty"`
+	TS      string          `json:"ts,omitempty"`
 	Payload json.RawMessage `json:"payload"`
 	Hash    string          `json:"hash"`
 }
@@ -250,7 +251,7 @@ func computeProjectState(dir string) ProjectState {
 
 	projected := map[string]bool{}
 	for _, f := range facts {
-		ps.Facts = append(ps.Facts, FactView{Seq: f.Seq, Type: f.Type, Actor: f.Actor, Ts: f.Ts, Payload: f.Payload, Hash: f.Hash})
+		ps.Facts = append(ps.Facts, FactView{Seq: f.Seq, Type: f.Type, Actor: f.Actor, TS: f.TS, Payload: f.Payload, Hash: f.Hash})
 		if eventledger.IsBridgeFact(f) {
 			var bp struct {
 				EventID string `json:"event_id"`
@@ -301,8 +302,7 @@ func collectState(root string, extra []string, depth int) GlobalState {
 	return gs
 }
 
-// discoverCargoProjects 找出可作為「運行目標」的專案（含 Cargo.toml）。
-// discoverCargoProjects 找出可作為「運行目標」的專案（含 Cargo.toml；根 + 至多 depth 層）。
+// DiscoverCargoProjects 找出可作為「運行目標」的專案（含 Cargo.toml；根 + 至多 depth 層）。
 func DiscoverCargoProjects(root string, extra []string, depth int) []string {
 	seen := map[string]bool{}
 	var out []string

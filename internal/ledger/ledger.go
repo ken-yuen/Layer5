@@ -36,13 +36,13 @@ type Fact struct {
 	Payload  json.RawMessage `json:"payload"`
 	PrevHash string          `json:"prev_hash"`
 	Hash     string          `json:"hash"`
-	Ts       string          `json:"ts,omitempty"` // 寫入時間（RFC3339 UTC）；不參與 hash，向後相容舊帳本
+	TS       string          `json:"ts,omitempty"` // 寫入時間（RFC3339 UTC）；不參與 hash，向後相容舊帳本
 }
 
 // ErrLocked 表示另一 YKC 程序正持有該帳本的寫鎖。
 var ErrLocked = errors.New("ledger is locked by another YKC process")
 
-// Ledger：單一寫者、append-only。
+// Ledger 是單一寫者、append-only 的 hash 鏈帳本。
 type Ledger struct {
 	mu       sync.Mutex
 	f        *os.File
@@ -133,7 +133,7 @@ func (l *Ledger) Append(typ, actor string, payload any) (uint64, error) {
 		l.seq--
 		return 0, fmt.Errorf("payload %d bytes exceeds ledger line limit %d", len(raw), MaxLineBytes)
 	}
-	f := Fact{Seq: l.seq, Type: typ, Actor: actor, Payload: raw, PrevHash: l.prevHash, Ts: time.Now().UTC().Format(time.RFC3339)}
+	f := Fact{Seq: l.seq, Type: typ, Actor: actor, Payload: raw, PrevHash: l.prevHash, TS: time.Now().UTC().Format(time.RFC3339)}
 	f.Hash = factHash(f.PrevHash, f.Type, f.Actor, f.Seq, f.Payload)
 	line, err := json.Marshal(f)
 	if err != nil {
