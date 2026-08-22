@@ -1,0 +1,10 @@
+% ============================================================
+% 弦律 liveness 等級: referent (保守, pre-NLL 行為)
+% 借貸終端 = 「被借者」之終端使用 (參考自身未用亦不銷毀)
+% 接受集更小, 但診斷更直覺; 可用於 --liveness=referent 嚴格模式
+% ============================================================
+
+shadowed_place(S,P) :- usep(A,P), after(S,A).
+last_use_place(S,P) :- usep(S,P), !shadowed_place(S,P).
+
+span_end(L,T,E) :- lend(L,P,T,_), last_use_place(E,P), reach(L,E).

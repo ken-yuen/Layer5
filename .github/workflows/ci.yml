@@ -42,6 +42,14 @@ jobs:
       - name: go build
         run: go build ./...
 
+      - name: go test
+        run: go test ./...
+
+      - name: L5 ChordLaw 回歸（19 項）
+        run: |
+          python3 --version
+          make l5-test
+
       - name: make binaries
         run: make binaries
 

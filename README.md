@@ -99,6 +99,8 @@ make image && make up
 │   ├── precompile/                 ← cargo check / rustc metadata pipeline
 │   └── rustutil/rustutil.go       ← 執行/解析/簽名/雜湊通用工具
 ├── core/interfaces.go             ← 五層窄介面 + Executor 骨架 ✅
+├── l5/chordlaw/                   ← L5 引擎：vendored ChordLaw（Datalog 借用檢查器，26/26 rustc oracle）
+├── internal/borrow/               ← L5 接線：文字拓撲 + 區間代數 + 衝突圖 + 幾何規則卡（代理可讀幾何）
 ├── demo-rust-cli/                 ← 健康示範專案（clap CLI，煙測用）
 ├── demo-broken-cli/               ← 有錯專案（除錯閉環用）
 ├── demo-semantic-cli/             ← 語意錯誤專案（E0425，剩餘錯誤路徑用）
@@ -117,6 +119,21 @@ make image && make up
     │   └── sandbox-runtime.yaml   ← gVisor RuntimeClass + 沙盒 Pod
     └── sandbox/
         └── README.md              ← gVisor/Firecracker 安裝指引
+```
+
+## L5 借用幾何解釋（2026-08-22 新增，T-18a）
+
+borrow 錯誤是 LLM 代理最難修的一類——因為代理「睇唔見生命週期圖」。L5 把借用規則變成**代理可讀的幾何**：
+
+- **judge 自動掛鉤**：`ykc-judge` 遇到 borrow 類錯誤碼（E0499/E0502/E0503/E0505/E0506/E0382/E0597/E0106…）自動附「📐 L5 借用幾何解釋」：幾何規則卡（兩條法則＋封閉修法菜單）＋ canonical 樣例的 ASCII 區間拓撲；解釋 sha256 上帳本（`borrow.analysis` 事實）可審計。
+- **MCP 工具 ×2**：`ykc.borrow_rules`（規則卡，純靜態永遠可用）、`ykc.borrow_explain`（.cl 最小樣例 → 區間拓撲＋代數事實＋修法）。
+- **判定權不轉移**：一切 L5 輸出都是 explanation，判定以 rustc 為準（決策 D22）。
+- **可選能力**：無 python3 時自動降級（規則卡仍可用），符合 T0 零依賴承諾。
+- 引擎：vendored [ChordLaw](l5/chordlaw/VENDOR.md)（Datalog 借用檢查器；19 項回歸＋26/26 rustc 1.98.0 oracle 差異測試一致）。
+
+```bash
+make l5-test      # vendored ChordLaw 上游 19 項回歸
+make borrow-test  # Go 接線層測試（拓撲/規則卡/17 範例 golden）
 ```
 
 ## 執行架構（「任何裝置可運行」四層）

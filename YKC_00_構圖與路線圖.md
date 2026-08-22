@@ -160,7 +160,8 @@
 | T-15 | 信任棘輪 + 首擊棘輪 | T-14 | ✅（T3→T2→T0 只降不升；偽造首擊即接管） | 2026-08-21 |
 | T-16 | 用家控制台 v1（個人版） | T-12,T-14 | ✅（紅黃綠摘要 + 證據報告 + 人類 reset 唯一回升入口） | 2026-08-21 |
 | T-17 | MCP server（minimal，零依賴） | T-12 | ✅（initialize/tools/list/tools/call；ykc.check/verify_claims/trust_status） | 2026-08-21 |
-| T-18 | L5 borrow 節點圖（-Znll-facts→datalog） | — | ⬜ | |
+| T-18a | L5 借用幾何解釋（vendored ChordLaw + internal/borrow: 文字拓撲/區間代數/衝突圖/幾何規則卡; judge 掛鉤 + MCP ×2 + 帳本 borrow.analysis） | — | ✅ | 2026-08-22 |
+| T-18b | L5 官方事實路線（-Znll-facts→Go datalog; 以 T-18a golden 做 differential testing） | T-18a | ⬜ | |
 | T-19 | L1 依賴對齊（包 cargo-audit/deny） | — | ⬜ | |
 | T-20 | L2 結構統計（tree-sitter） | — | ⬜ | |
 | T-21 | 企業版控制台 + K8s SaaS | P4 | ⬜ | |
@@ -206,7 +207,8 @@
 | D19 | 修復與邊界加固 | 6 處 S 級 + 10 處 D 級全修（面板白名單/token/限長、煙測引擎合一 internal/smoke、DiagnosticSummary 統一 domain schema、帳本 OpenVerified+flock+行長有界、CI 釘 1.98.0/rust-analyzer 2026-08-17.4、release 補 7 二進制、guard 走 bridge、claimview 雙格式解碼、file: path traversal 攔截、claims 有界、MCP claims_path 約束、sandbox env key 過濾、tail buffer 合一 internal/tail）。見 YKC_11 |
 | D20 | 受限環境安裝路徑 | go.dev 不可達環境（內網/受限 CI）的官方備援：`bootstrap-go.sh` 六級 bootstrap 鏈（gcc→1.4.3→…→1.27.0，實測 18 分鐘/2C3G），`make bootstrap-go` 一鍵。見 YKC_11 §1.2 |
 | D21 | 帳本頭錨定（殘留風險） | hash 鏈無外錨時「截斷/末行重簽」不可偵測（OpenVerified 偵測的是中間行竄改/插入）。P3 前以「panel 定期外發 chain head + 人工核對」過渡；P3 做 head 錨定（獨立儲存/遠端存證） |
+| D22 | L5 雙軌 | L5 採雙軌：**軌一（T-18a, 已落地）**= vendored ChordLaw 作「解釋層」——SVG 給人看、幾何給代理讀（文字拓撲+區間代數+衝突圖紅邊+幾何規則卡 E01–E10↔rustc）；判定權不轉移（一切輸出是 explanation, 判定以 rustc 為準）；解釋 sha256 上帳本（borrow.analysis）可審計；L5 是可選能力（無 python3 降級為純規則卡, 守 T0 承諾）。**軌二（T-18b）**= D2 原路線不變（-Znll-facts→Go datalog），以軌一 17 範例 golden + 26 oracle 作 differential testing 基準收斂。vendor 記錄見 l5/chordlaw/VENDOR.md |
 
 ---
 
-*版次：v9.0（2026-08-22 修復與邊界加固，新增 D19–D21；A.3 補 core 骨架如實標記）。*
+*版次：v10.0（2026-08-22 L5 落地：T-18a ✅（ChordLaw 解釋層——代理可讀幾何），T-18 拆 a/b 雙軌，新增 D22；見 YKC_12）。*

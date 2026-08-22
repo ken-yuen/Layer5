@@ -162,6 +162,13 @@ func runJudge(dir, key string) {
 				fmt.Printf("      ↳ 官方說明: %s\n", ex)
 			}
 		}
+		// L5: borrow 類錯誤 → 幾何解釋（規則卡+樣例拓撲; 解釋非判定）
+		if l5 := l5Explain(dir, remaining, led); l5 != "" {
+			fmt.Println("--- 📐 L5 借用幾何解釋（ChordLaw; 解釋非判定）---")
+			for _, ln := range strings.Split(strings.TrimRight(l5, "\n"), "\n") {
+				fmt.Println("   " + ln)
+			}
+		}
 	}
 	fmt.Println("------------------------------------------------")
 	fmt.Printf(" 整體判定       : %s\n", strings.ToUpper(overall))

@@ -14,7 +14,7 @@
 #   make health   — 全專案健檢（vet + build + 回歸）
 #   make image   — 建置 OCI 鏡像（Podman 優先，回退 Docker）
 #   make up      — 本機容器一鍵運行
-.PHONY: setup verify-all build binaries smoke atom precompile judge lsp guard guard-verify guard-score guard-mcp panel health image up clean
+.PHONY: setup verify-all build binaries smoke atom precompile judge lsp guard guard-verify guard-score guard-mcp panel health image up clean l5-test borrow-test
 
 # 工具鏈位置：預設 $HOME/.ykc（零 sudo）；可用環境變數覆寫（如 YKC_HOME=/opt/ykc）
 YKC_HOME ?= $(HOME)/.ykc
@@ -120,6 +120,14 @@ panel: binaries
 
 smoke: build
 	./bin/ykc -dir ./demo-rust-cli -claims ./claims.json -key $${YKC_KEY:-ykc-dev-key}
+
+# L5 引擎回歸（vendored ChordLaw 上游 19 項測試）
+l5-test:
+	python3 l5/chordlaw/test_chordlaw.py
+
+# L5 Go 接線層測試（拓撲/規則卡/golden；python3 缺席時 E2E 自動 Skip）
+borrow-test:
+	go test ./internal/borrow/...
 
 health: binaries
 	@echo "== go vet =="; go vet ./...

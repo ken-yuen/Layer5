@@ -5,12 +5,14 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"ykc/internal/borrow"
 	"ykc/internal/claimview"
 	"ykc/internal/rustutil"
 )
@@ -47,6 +49,26 @@ var tools = []map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"agent_id": map[string]any{"type": "string"},
+			},
+		},
+	},
+	{
+		"name":        "ykc.borrow_rules",
+		"description": "Rust 借用規則幾何卡：兩條幾何法則 + E01–E10 修法菜單（把開放式除錯變成封閉選擇題）。可按 rustc 錯誤碼過濾（如 E0502）",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"code": map[string]any{"type": "string", "description": "rustc 錯誤碼（可選, 如 E0502; 省略=全卡）"},
+			},
+		},
+	},
+	{
+		"name":        "ykc.borrow_explain",
+		"description": "L5 借用幾何解釋：分析 .cl 最小樣例（簡化借用模型語言）, 回傳區間拓撲+代數事實+修法。解釋非判定, 判定以 rustc 為準。cl_source 上限 8KB",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"cl_source": map[string]any{"type": "string", "description": ".cl 源碼（語法見 l5/chordlaw/README.md）"},
 			},
 		},
 	},
@@ -107,6 +129,42 @@ func callTool(dir, name string, args map[string]any) map[string]any {
 		facts := readAll(dir)
 		lvl := TrustLevel(claimview.TrustLevel(facts, agent, int(T3)))
 		return toolResult(fmt.Sprintf("代理 %s 信任等級 = %s", agent, lvl), false)
+
+	case "ykc.borrow_rules":
+		code, _ := args["code"].(string)
+		if code == "" {
+			return toolResult(borrow.RenderCard(borrow.RuleCard), false)
+		}
+		entries := borrow.ByRustcCode(code)
+		if len(entries) == 0 {
+			if !borrow.IsBorrowCode(code) {
+				return toolResult(fmt.Sprintf("%s 不屬 borrow/生命週期類錯誤（本卡只覆蓋借用幾何）", code), false)
+			}
+			return toolResult(fmt.Sprintf("%s 屬 borrow 類但無專屬條目; 全卡如下:\n\n%s",
+				code, borrow.RenderCard(borrow.RuleCard)), false)
+		}
+		return toolResult(borrow.RenderCard(entries), false)
+
+	case "ykc.borrow_explain":
+		src, _ := args["cl_source"].(string)
+		if src == "" {
+			return toolResult("需要 cl_source 參數（.cl 最小樣例源碼）", true)
+		}
+		analyzer := &borrow.Analyzer{}
+		if avail, why := analyzer.Available(); !avail {
+			return toolResult("L5 引擎不可用: "+why+"（規則卡仍可用: ykc.borrow_rules）", true)
+		}
+		r, err := analyzer.AnalyzeSource(context.Background(), dir, src)
+		if err != nil {
+			return toolResult("L5 分析失敗: "+err.Error(), true)
+		}
+		var sb strings.Builder
+		sb.WriteString(borrow.BuildTopology(r).RenderText())
+		fmt.Fprintf(&sb, "\nverdict(僅指此 .cl 模型): %s", r.Verdict)
+		for _, e := range r.Errors {
+			fmt.Fprintf(&sb, "\n  [%s] %s 「%s」— %s", e.Code, e.Stmt, e.StmtText, e.Message)
+		}
+		return toolResult(sb.String(), false)
 
 	default:
 		return toolResult("未知工具: "+name, true)

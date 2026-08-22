@@ -27,3 +27,10 @@ evidence*.md
 # ── shell 設定（本機才有）──
 .profile
 .bashrc
+
+# L5 ChordLaw 運行產物
+l5/chordlaw/examples/out/
+l5/chordlaw/.oracle_tmp/
+__pycache__/
+*.pyc
+.ykc/l5/
