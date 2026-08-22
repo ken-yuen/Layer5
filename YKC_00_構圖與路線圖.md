@@ -92,6 +92,13 @@
 | L4 沙盒預編譯除錯 | cargo fix→check→LLM 修復→test 閉環 | 除錯引擎 + 簽名 receipt 來源 |
 | L5 borrow 仿構 | `-Znll-facts`→datalog→節點圖 | 「先解釋、後判定」的高階能力 |
 
+> **實作狀態如實標記（2026-08-22 代碼審視後）**：`core/interfaces.go` 的五層窄介面 /
+> `Core` / `Executor` 目前是**骨架（未被任何命令接線）**——實際實作為「六個 CLI 共享
+> internal/ 包」的聯合體（ledger/eventstore/guardrail/sandbox/smoke/claimview…）。
+> 這不影響功能與安全（CLI 聯合體更簡單可靠），但 P3 若要接線「模組化單體」（YKC_02），
+> 需先決定：以現行 internal 包為實作、把 core 介面當測試替身/文件，或反向把 CLI 邏輯搬進
+> 介面實作。**勿再在文檔中以「已接線」表述。**
+
 ### A.4 商業化構圖（open-core）
 
 - **開源線**：Core 引擎 MPL-2.0 + CLA（Day 1 簽）。個人版用家控制台隨開源。
@@ -157,6 +164,9 @@
 | T-19 | L1 依賴對齊（包 cargo-audit/deny） | — | ⬜ | |
 | T-20 | L2 結構統計（tree-sitter） | — | ⬜ | |
 | T-21 | 企業版控制台 + K8s SaaS | P4 | ⬜ | |
+| T-22 | 修復與邊界加固（S1–S6、D1–D10、path traversal、MCP/claims 有界、CI/release 釘版） | — | ✅ | 2026-08-22 |
+| T-23 | bootstrap-go.sh 受限環境安裝路徑 | — | ✅ | 2026-08-22 |
+| T-24 | 帳本 head 錨定（截斷/末行重簽偵測） | T-22 | ⬜ | |
 
 ---
 
@@ -193,7 +203,10 @@
 | D16 | 觀察台 | YKC Trust Console（`cmd/ykc-panel`）：唯讀、零外部依賴、人類面板 + 機器可讀 API（/api/state、/api/raw）；帳本事實加 ts 時間戳（不進 hash，向後相容） |
 | D17 | 控制台 | 面板升級「控制 + 觀察」：/api/projects（揀對象）+ /api/jobs（啟動/停止/實時日誌）+ 工具鏈環境自癒（PATH/RUSTUP_HOME/CARGO_HOME 自動補齊）；雙擊啟動器 launch.command/.sh/.bat |
 | D18 | 五層落實藍圖 | L1 cargo-vet/audit/deny；L2 gotreesitter+SCIP+bbolt/DuckDB；L3 differential dataflow+datalog 護欄；L4 rustfix+nextest+miette+LLM 閉環；L5 -Znll-facts+eqlog+節點圖。見 YKC_04 |
+| D19 | 修復與邊界加固 | 6 處 S 級 + 10 處 D 級全修（面板白名單/token/限長、煙測引擎合一 internal/smoke、DiagnosticSummary 統一 domain schema、帳本 OpenVerified+flock+行長有界、CI 釘 1.98.0/rust-analyzer 2026-08-17.4、release 補 7 二進制、guard 走 bridge、claimview 雙格式解碼、file: path traversal 攔截、claims 有界、MCP claims_path 約束、sandbox env key 過濾、tail buffer 合一 internal/tail）。見 YKC_11 |
+| D20 | 受限環境安裝路徑 | go.dev 不可達環境（內網/受限 CI）的官方備援：`bootstrap-go.sh` 六級 bootstrap 鏈（gcc→1.4.3→…→1.27.0，實測 18 分鐘/2C3G），`make bootstrap-go` 一鍵。見 YKC_11 §1.2 |
+| D21 | 帳本頭錨定（殘留風險） | hash 鏈無外錨時「截斷/末行重簽」不可偵測（OpenVerified 偵測的是中間行竄改/插入）。P3 前以「panel 定期外發 chain head + 人工核對」過渡；P3 做 head 錨定（獨立儲存/遠端存證） |
 
 ---
 
-*版次：v8.0（2026-08-22 五層落實藍圖，新增 D18）。*
+*版次：v9.0（2026-08-22 修復與邊界加固，新增 D19–D21；A.3 補 core 骨架如實標記）。*

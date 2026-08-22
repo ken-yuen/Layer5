@@ -62,16 +62,60 @@ type JobManager struct {
 	jobs   map[string]*Job
 	order  []string
 	bindir string
+	root   string // 面板掃描根（claims 路徑約束的範圍之一）
 }
 
-func newJobManager(bindir string) *JobManager {
-	return &JobManager{jobs: map[string]*Job{}, bindir: bindir}
+func newJobManager(bindir, root string) *JobManager {
+	return &JobManager{jobs: map[string]*Job{}, bindir: bindir, root: root}
 }
 
 func newID() string {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// validateProject 邊界加固（S1 核心）：任務的 project 必須解析到「已發現的
+// Cargo 專案白名單」內的**同一目錄**（精確比對，不做 base 名模糊比對——
+// 同名專案可能撞車）——任意路徑一律拒收，杜絕經面板在攻擊者目錄觸發
+// cargo（build.rs → 任意代碼執行）。相對路徑以面板 root 為基準解析。
+func (m *JobManager) validateProject(project string) (string, error) {
+	var cands []string
+	abs, err := filepath.Abs(project)
+	if err != nil {
+		return "", fmt.Errorf("project 路徑無法解析: %s", project)
+	}
+	cands = append(cands, filepath.Clean(abs))
+	if !filepath.IsAbs(project) {
+		cands = append(cands, filepath.Clean(filepath.Join(m.root, project)))
+	}
+	for _, c := range cands {
+		for _, d := range discoverCargoProjects(m.root, nil, 1) {
+			if d == c {
+				return d, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("project 不在已發現專案清單內（請先 GET /api/projects）: %s", project)
+}
+
+// validateClaims 邊界加固：claims 檔必須在「專案目錄」或「面板根」之內
+// （防經面板讀取任意檔案）。
+func (m *JobManager) validateClaims(project, claims string) (string, error) {
+	abs, err := filepath.Abs(claims)
+	if err != nil {
+		return "", fmt.Errorf("claims 路徑無法解析: %s", claims)
+	}
+	if inside(m.root, abs) || inside(project, abs) {
+		return abs, nil
+	}
+	return "", fmt.Errorf("claims 檔案必須在專案目錄或面板根目錄內: %s", claims)
+}
+
+func inside(root, p string) bool {
+	rr := filepath.Clean(root)
+	r := filepath.Clean(p)
+	return r == rr || strings.HasPrefix(r, rr+string(os.PathSeparator))
 }
 
 // argv 把「動作名」映對到實際二進制與參數。
@@ -110,7 +154,20 @@ func (m *JobManager) argv(action, project, claims string) (string, []string, err
 }
 
 // Start 啟動一個任務（非阻塞，立即回傳）。
-func (m *JobManager) Start(action, project, claims string) (*Job, error) {
+// 邊界：project 白名單驗證 + claims 路徑約束（見 validate*）。
+func (m *JobManager) Start(root, action, project, claims string) (*Job, error) {
+	validProject, err := m.validateProject(project)
+	if err != nil {
+		return nil, err
+	}
+	if claims != "" {
+		validClaims, err := m.validateClaims(validProject, claims)
+		if err != nil {
+			return nil, err
+		}
+		claims = validClaims
+	}
+	project = validProject
 	name, args, err := m.argv(action, project, claims)
 	if err != nil {
 		return nil, err

@@ -1,24 +1,31 @@
+// Package smoke 是 YKC 的「命令執行核心」：所有煙測/接管驗證的命令
+// （cargo、rustc、被測二進制）一律經此執行，輸出處理全專案唯一
+// （internal/tail：全量 hash + 尾部保留）。
+//
+// 兩種模式：
+//   - FailFast=true（預設）：前一條失敗即停——「基本健康不成立，後續無意義」
+//     （ykc-atom smoke takeover 用）。
+//   - FailFast=false：全部執行完——分層煙測收據要列齊每一層結果
+//     （cmd/ykc-smoke 用）。
 package smoke
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"fmt"
-	"hash"
 	"os/exec"
 	"time"
 
 	"ykc/internal/domain"
+	"ykc/internal/tail"
 )
 
 type CommandSpec struct {
+	ID      string              `json:"id,omitempty"` // 穩定的檢查 id（收據用，如 "T0.version"）
 	Class   domain.CommandClass `json:"class"`
 	Name    string              `json:"name"`
 	Args    []string            `json:"args,omitempty"`
 	WorkDir string              `json:"work_dir,omitempty"`
-	Timeout time.Duration       `json:"timeout"`
+	Timeout time.Duration       `json:"timeout,omitempty"`
 }
 
 type Report struct {
@@ -27,16 +34,27 @@ type Report struct {
 	Results []domain.CommandResult `json:"results"`
 }
 
+// ResultOf 依 spec.ID 取結果（無則零值 + false）。
+func (r Report) ResultOf(id string) (domain.CommandResult, bool) {
+	for _, res := range r.Results {
+		if res.CommandID == id {
+			return res, true
+		}
+	}
+	return domain.CommandResult{}, false
+}
+
 type Runner struct {
 	DefaultTimeout time.Duration
 	MaxOutputBytes int
+	FailFast       bool // true（預設）：首個失敗即停
 }
 
 func DefaultRustSmoke(root string) []CommandSpec {
 	return []CommandSpec{
-		{Class: domain.CommandClassMeta, Name: "cargo", Args: []string{"metadata", "--format-version=1"}, WorkDir: root, Timeout: 60 * time.Second},
-		{Class: domain.CommandClassCheck, Name: "cargo", Args: []string{"check", "--workspace", "--all-targets", "--message-format=json"}, WorkDir: root, Timeout: 120 * time.Second},
-		{Class: domain.CommandClassTest, Name: "cargo", Args: []string{"test", "--workspace", "--all-targets", "--no-run", "--message-format=json"}, WorkDir: root, Timeout: 180 * time.Second},
+		{ID: "cargo-metadata", Class: domain.CommandClassMeta, Name: "cargo", Args: []string{"metadata", "--format-version=1"}, WorkDir: root, Timeout: 60 * time.Second},
+		{ID: "cargo-check", Class: domain.CommandClassCheck, Name: "cargo", Args: []string{"check", "--workspace", "--all-targets", "--message-format=json"}, WorkDir: root, Timeout: 120 * time.Second},
+		{ID: "cargo-test-no-run", Class: domain.CommandClassTest, Name: "cargo", Args: []string{"test", "--workspace", "--all-targets", "--no-run", "--message-format=json"}, WorkDir: root, Timeout: 180 * time.Second},
 	}
 }
 
@@ -58,7 +76,7 @@ func (r Runner) Run(ctx context.Context, specs []CommandSpec) (Report, error) {
 		}
 		report.Results = append(report.Results, res)
 		// Smoke takeover is fail-fast: later commands depend on earlier basic health.
-		if !res.Succeeded() {
+		if r.FailFast && !res.Succeeded() {
 			break
 		}
 	}
@@ -75,13 +93,14 @@ func (r Runner) runOne(parent context.Context, spec CommandSpec) domain.CommandR
 	defer cancel()
 	cmd := exec.CommandContext(ctx, spec.Name, spec.Args...)
 	cmd.Dir = spec.WorkDir
-	stdout := newTailBuffer(r.MaxOutputBytes)
-	stderr := newTailBuffer(r.MaxOutputBytes)
+	stdout := tail.NewBuffer(r.MaxOutputBytes)
+	stderr := tail.NewBuffer(r.MaxOutputBytes)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err := cmd.Run()
 	finished := time.Now().UTC()
 	res := domain.CommandResult{
+		CommandID:    spec.ID,
 		Class:        spec.Class,
 		Name:         spec.Name,
 		Args:         spec.Args,
@@ -104,43 +123,4 @@ func (r Runner) runOne(parent context.Context, spec CommandSpec) domain.CommandR
 		}
 	}
 	return res
-}
-
-type tailBuffer struct {
-	Limit int
-	total int64
-	h     hash.Hash
-	buf   []byte
-}
-
-func newTailBuffer(limit int) *tailBuffer {
-	return &tailBuffer{Limit: limit, h: sha256.New()}
-}
-
-func (b *tailBuffer) Write(p []byte) (int, error) {
-	_, _ = b.h.Write(p)
-	b.total += int64(len(p))
-	if b.Limit <= 0 {
-		b.buf = append(b.buf, p...)
-		return len(p), nil
-	}
-	if len(p) >= b.Limit {
-		b.buf = append(b.buf[:0], p[len(p)-b.Limit:]...)
-		return len(p), nil
-	}
-	b.buf = append(b.buf, p...)
-	if len(b.buf) > b.Limit {
-		copy(b.buf, b.buf[len(b.buf)-b.Limit:])
-		b.buf = b.buf[:b.Limit]
-	}
-	return len(p), nil
-}
-
-func (b *tailBuffer) SumHex() string  { return hex.EncodeToString(b.h.Sum(nil)) }
-func (b *tailBuffer) Truncated() bool { return b.Limit > 0 && b.total > int64(len(b.buf)) }
-func (b *tailBuffer) String() string {
-	if b.Truncated() {
-		return fmt.Sprintf("...<truncated; kept last %d of %d bytes>\n%s", len(b.buf), b.total, string(b.buf))
-	}
-	return string(b.buf)
 }

@@ -14,6 +14,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"ykc/internal/claimview"
+	"ykc/internal/domain"
 )
 
 func main() {
@@ -60,6 +63,10 @@ func cmdVerify(args []string) {
 	claims := fs.String("claims", "", "claims.json")
 	_ = fs.Parse(args)
 
+	if err := requireDir(*dir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	doc, err := loadClaims(*claims)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "載入聲明失敗:", err)
@@ -86,25 +93,29 @@ func cmdScore(args []string) {
 	claims := fs.String("claims", "", "claims.json")
 	_ = fs.Parse(args)
 
+	if err := requireDir(*dir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	doc, err := loadClaims(*claims)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "載入聲明失敗:", err)
 		os.Exit(1)
 	}
 	p := Project{Dir: absDir(*dir)}
-	led, err := openLedger(p.Dir)
+	br, err := openBridge(p.Dir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "帳本:", err)
 		os.Exit(1)
 	}
-	defer led.Close()
+	defer br.Close()
 
-	// 1) 比對
+	// 1) 比對（每條判決經 bridge 落帳：原子事件庫 + hash 鏈投影）
 	var verdicts []Verdict
 	for _, c := range doc.Claims {
 		v := p.Verify(c)
 		verdicts = append(verdicts, v)
-		appendFact(led, "claim.verdict", "ykc-guard", map[string]any{
+		appendTrustEvent(br, p.Dir, domain.EventClaimVerdict, doc.SessionID, map[string]any{
 			"agent_id": doc.AgentID, "session_id": doc.SessionID,
 			"claim_id": v.ClaimID, "text": v.Text, "feature": v.Feature,
 			"verdict": v.Verdict, "evidence": v.Evidence, "severity": v.Severity,
@@ -112,10 +123,10 @@ func cmdScore(args []string) {
 	}
 
 	// 2) 棘輪
-	from := currentTrust(readAll(p.Dir), doc.AgentID)
+	from := TrustLevel(claimview.TrustLevel(readAll(p.Dir), doc.AgentID, int(T3)))
 	to, events := ApplyAll(from, verdicts)
 	for _, ev := range events {
-		appendFact(led, "trust.event", "ykc-guard", map[string]any{
+		appendTrustEvent(br, p.Dir, domain.EventTrustEvent, doc.SessionID, map[string]any{
 			"agent_id": doc.AgentID, "session_id": doc.SessionID,
 			"claim_id": ev.ClaimID, "severity": ev.Severity, "kind": ev.Kind,
 			"intent": ev.Intent, "from": int(ev.From), "to": int(ev.To), "action": ev.Action,
@@ -136,6 +147,10 @@ func cmdConsole(args []string) {
 	out := fs.String("out", "evidence.md", "證據報告路徑")
 	_ = fs.Parse(args)
 
+	if err := requireDir(*dir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	d := readConsoleData(absDir(*dir), *agent)
 	printConsole(d)
 	if err := writeEvidenceReport(d, *out); err != nil {
@@ -156,17 +171,37 @@ func cmdReset(args []string) {
 		fmt.Fprintln(os.Stderr, "❌ 必須提供 -reason（人類放行理由，永久留審計）")
 		os.Exit(1)
 	}
+	if *agent == "" {
+		fmt.Fprintln(os.Stderr, "❌ 必須提供 -agent（代理 id）")
+		os.Exit(1)
+	}
+	if err := requireDir(*dir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	p := Project{Dir: absDir(*dir)}
-	led, err := openLedger(p.Dir)
+	br, err := openBridge(p.Dir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "帳本:", err)
 		os.Exit(1)
 	}
-	defer led.Close()
-	appendFact(led, "trust.reset", "ykc-guard", map[string]any{
-		"agent_id": *agent, "to": 3, "reason": *reason,
+	defer br.Close()
+	appendTrustEvent(br, p.Dir, domain.EventTrustReset, "", map[string]any{
+		"agent_id": *agent, "to": int(T3), "reason": *reason,
 	})
 	fmt.Printf("✅ 已重置代理 %s → T3 高度信任\n   理由: %s（已永久寫入帳本）\n", *agent, *reason)
+}
+
+// requireDir：邊界加固——專案目錄必須存在且為目錄。
+func requireDir(dir string) error {
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("專案目錄不存在: %s", dir)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("專案路徑不是目錄: %s", dir)
+	}
+	return nil
 }
 
 func cmdMCP(args []string) {

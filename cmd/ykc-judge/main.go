@@ -43,6 +43,11 @@ func main() {
 	if abs, err := filepath.Abs(*dir); err == nil {
 		*dir = abs
 	}
+	// 邊界加固：專案目錄必須存在且為目錄
+	if fi, err := os.Stat(*dir); err != nil || !fi.IsDir() {
+		fmt.Fprintln(os.Stderr, "❌ 專案目錄不存在:", *dir)
+		os.Exit(1)
+	}
 
 	switch {
 	case *verify:
@@ -65,7 +70,9 @@ func appendFact(led *ledger.Ledger, typ, actor string, payload any) {
 func runJudge(dir, key string) {
 	ledgerDir := filepath.Join(dir, ".ykc")
 	_ = os.MkdirAll(ledgerDir, 0o755)
-	led, err := ledger.Open(filepath.Join(ledgerDir, "ledger.jsonl"))
+	// S4 修復：寫入前校驗全鏈（OpenVerified）——不在偽鏈/斷鏈之上繼續追加；
+	// 併取得寫鎖（flock）強制單一寫者。
+	led, err := ledger.OpenVerified(filepath.Join(ledgerDir, "ledger.jsonl"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ledger:", err)
 		os.Exit(1)

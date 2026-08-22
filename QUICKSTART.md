@@ -74,6 +74,8 @@ make guard-mcp      # MCP：把 YKC 當成 agent 可呼叫的工具
 |---|---|
 | `make: command not found` | 安裝 make：macOS `xcode-select --install`；Ubuntu `sudo apt install make` |
 | 下載 Go/Rust 很慢 | 換網路；或自行安裝 go 與 rustup 後再跑 `bash dev-setup.sh`（會自動偵測沿用） |
+| go.dev 被封鎖（內網/受限環境） | `make bootstrap-go`：自 GitHub 源碼六級 bootstrap 鏈自建 Go 1.27（實測 ~18 分鐘/2C3G，見 `bootstrap-go.sh`） |
+| 面板暴露到網路 | 加 `-token <密鑰>`（或 env `YKC_PANEL_TOKEN`）；預設已綁 127.0.0.1，暴露前務必讀 README「面板安全邊界」 |
 | `⚠️ rust-analyzer 下載失敗` | 僅影響 `make lsp` 展示；其他功能不受影響。稍後可重跑 `bash dev-setup.sh` 重試 |
 | Windows 無法執行 | 請用 WSL（Ubuntu），原生 cmd/PowerShell 不支援 |
 

@@ -388,14 +388,30 @@ async function loadProjects(){
   }catch(e){}
 }
 
+// 控制端點 token（面板以 -token / YKC_PANEL_TOKEN 啟動時需要）
+function authHeaders(){
+  const t=localStorage.getItem("ykcPanelToken");
+  return t?{"Authorization":"Bearer "+t}:{};
+}
+// withToken：401 時提示輸入 token 並重試一次
+async function withToken(doFetch){
+  let r=await doFetch();
+  if(r.status===401){
+    const t=prompt("面板控制端點需要 token（以 -token 或 YKC_PANEL_TOKEN 啟動面板時設定）：");
+    if(t!==null&&t!==""){localStorage.setItem("ykcPanelToken",t);r=await doFetch();}
+    else{localStorage.removeItem("ykcPanelToken");}
+  }
+  return r;
+}
+
 async function startAction(a){
   const project=curProject();
   if(!project){alert("請先選擇或輸入專案路徑");return;}
   const claims=$("#claims").value.trim();
   try{
-    const r=await fetch("/api/jobs",{method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({action:a,project,claims})});
+    const r=await withToken(()=>fetch("/api/jobs",{method:"POST",
+      headers:Object.assign({"Content-Type":"application/json"},authHeaders()),
+      body:JSON.stringify({action:a,project,claims})}));
     if(!r.ok){const t=await r.text();alert("啟動失敗："+t);return;}
     setWorkStarting(a);
     loadJobs();
@@ -404,8 +420,8 @@ async function startAction(a){
 
 async function stopJob(id){
   try{
-    const r=await fetch("/api/jobs/stop",{method:"POST",
-      headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+    const r=await withToken(()=>fetch("/api/jobs/stop",{method:"POST",
+      headers:Object.assign({"Content-Type":"application/json"},authHeaders()),body:JSON.stringify({id})}));
     if(!r.ok){const t=await r.text();alert("停止失敗："+t);}
     loadJobs();
   }catch(e){alert("連線失敗："+e);}

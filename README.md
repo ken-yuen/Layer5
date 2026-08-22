@@ -20,11 +20,20 @@ make image && make up
 
 ## YKC Trust Console（控制 + 觀察台）
 
-`make panel` 或雙擊啟動器後，瀏覽器開 <http://localhost:8080>（本機啟動器綁 127.0.0.1）：
+`make panel` 或雙擊啟動器後，瀏覽器開 <http://localhost:8080>：
 
 - **控制（人類觸發）**：選擇運行對象（專案）→ 煙測/除錯/閘門/護欄動作 → 開始/停止 → 實時日誌與狀態。
 - **觀察（唯讀）**：專案完整性、信任等級（T0–T3）、判決與證據、即時事實流（hash 串鏈）——全部直接讀自 `.ykc/ledger.jsonl`，不改寫。
 - **AI 看（機器可讀）**：`GET /api/state`、`GET /api/raw?project=<dir>`、`GET /api/projects`、`GET/POST /api/jobs`、`GET /healthz`。
+
+### 面板安全邊界（2026-08 加固）
+
+- **預設綁 127.0.0.1（本機）**；要暴露到網路須顯式 `-addr 0.0.0.0:8080`，且未設 token 時啟動即打印安全警告。
+- **控制端點可加 Bearer token**：`-token <密鑰>` 或 `YKC_PANEL_TOKEN` env；未授權 401。前端 401 時會提示輸入並記憶。
+- **任務 project 白名單**：`POST /api/jobs` 的 project 必須在已發現的 Cargo 專案內，任意路徑（如 `/etc`）一律 400 拒收——杜絕經面板在攻擊者目錄觸發 cargo（build.rs → 任意代碼執行）。
+- **claims 路徑約束**：guard-verify/guard-score 的 claims 檔必須在專案目錄或面板根內（防任意檔讀取）。
+- **請求體限長**（1MB，`MaxBytesReader`）。
+- 觀察端（`/api/state` 等）唯讀、無需 token，可安全供 AI agent 拉取。
 
 ## 文件索引
 

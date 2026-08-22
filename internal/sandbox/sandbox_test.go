@@ -5,18 +5,28 @@ import (
 	"testing"
 )
 
-func TestTailBufferKeepsLastBytesAndFullHash(t *testing.T) {
-	b := newTailBuffer(5)
-	_, _ = b.Write([]byte("hello"))
-	_, _ = b.Write([]byte(" world"))
-	if !b.Truncated() {
-		t.Fatal("expected truncation")
+// tail buffer 的測試已移至 internal/tail（唯一實作處，S2/D5 合一）。
+
+func TestBuildEnvDropsInvalidKeys(t *testing.T) {
+	env := buildEnv(Config{Network: NetworkNone, Env: map[string]string{
+		"GOOD_KEY":   "1",
+		"bad key":    "x",
+		"LEAD=DASH":  "y",
+		"-injection": "z",
+		"123NUMERIC": "w",
+		"GOOD_KEY2_": "ok",
+	}})
+	joined := "\n" + strings.Join(env, "\n") + "\n"
+	if !strings.Contains(joined, "\nGOOD_KEY=1\n") {
+		t.Fatalf("valid key dropped: %v", env)
 	}
-	if got := string(b.Bytes()); got != "world" {
-		t.Fatalf("expected tail world, got %q", got)
+	if !strings.Contains(joined, "\nGOOD_KEY2_=ok\n") {
+		t.Fatalf("valid key dropped: %v", env)
 	}
-	if !strings.Contains(b.String(), "kept last 5 of 11 bytes") {
-		t.Fatalf("expected truncation marker, got %q", b.String())
+	for _, bad := range []string{"bad key=", "LEAD=DASH=", "-injection=", "123NUMERIC="} {
+		if strings.Contains(joined, bad) {
+			t.Fatalf("invalid env key leaked: %q in %v", bad, env)
+		}
 	}
 }
 
