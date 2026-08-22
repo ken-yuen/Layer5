@@ -1,0 +1,16 @@
+% ============================================================
+% 弦律 liveness 等級: NLL (預設)
+% 借貸終端 = 該「參考自身」之終端使用
+% 參數慣例: (S,T) = 陳述 S, 參考 T
+% tuse 閉包: 對參考 T 之「使用」包含對其借用人 (別名鏈) 之使用
+%   = NLL 的 origin 活度 (參考上有任何活躍借貸, 該參考即活躍)
+% 區域 = 活躍點之向前閉包, 於 DAG 上即達達性遞推, 無需 fixpoint 引擎
+% ============================================================
+
+tuse(S,T) :- use_ref(S,T).
+tuse(S,T) :- use_ref(S,U), ref_of(U,T).
+
+shadowed_ref(S,T) :- tuse(A,T), after(S,A).
+last_use_ref(S,T) :- tuse(S,T), !shadowed_ref(S,T).
+
+span_end(L,T,E) :- lend(L,_,T,_), last_use_ref(E,T), reach(L,E).

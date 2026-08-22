@@ -1,0 +1,81 @@
+% ============================================================
+% 弦律 ChordLaw — 規則檔 v0.3 (核心規則)
+% 仿照 Rust 借用/生命週期之簡化規則集
+% 純 Datalog: 正遞迴 + 分層否定 (stratified)
+% 內建: neq(A,B), path_conflict(A,B) (路徑相等或字段前綴),
+%       covers(A,B) (寫 A 重新初始化 B: A==B 或 A 覆蓋 B),
+%       subpath(A,B) (A 嚴格深於 B)
+% 慣例: 變數大寫/_ 開頭; 常數小寫開頭 (陳述 s1…, 作用域 n0…, 路徑 x / x.f)
+% ============================================================
+
+% ---------- 結構: 控制流達達性 / 作用域樹 ----------
+reach(A,B) :- edge(A,B).
+reach(A,A) :- stmt(A).
+reach(A,C) :- reach(A,B), edge(B,C).
+% after = 控制流上嚴格在前 (DAG+後向邊; 排除自身)
+after(A,B) :- reach(A,B), neq(A,B).
+
+anc(N,M) :- parent(N,M).
+anc(N,M) :- anc(N,K), parent(K,M).
+inside(N,M) :- anc(N,M).
+inside(N,M) :- same(N,M).
+
+% ---------- 名稱: 別名鏈 (alias chain) ----------
+ref_of(T,P) :- borrow_of(T,P).
+ref_of(T,P) :- borrow_of(T,Q), ref_of(Q,P).
+
+% ---------- 使用 (字段路徑感知: 整體/子字段存取皆算對該路徑之使用) ----------
+% 任何存取 (讀/寫/經參考) 與被借者 P 路徑衝突
+usep(S,P) :- read(S,P2), path_conflict(P,P2).
+usep(S,P) :- write(S,P2), path_conflict(P,P2).
+usep(S,P) :- use_ref(S,T), ref_of(T,R), path_conflict(R,P).
+% 讀取性使用 (排除寫入; 寫入 = 重新初始化, 非「使用」)
+readp(S,P) :- read(S,P2), path_conflict(P,P2).
+readp(S,P) :- use_ref(S,T), ref_of(T,R), path_conflict(R,P).
+
+% ---------- 區域 (region): NLL 向前閉包 ----------
+% 借貸 L 於點 Q 活躍: Q 位於「出借點 → 終端使用點」之某路徑上
+% (span_end 由 liveness 檔定義: nll / referent / lexical 三種等級)
+onregion(L,Q) :- lend(L,_,T,_), span_end(L,T,E), reach(L,Q), reach(Q,E).
+% 同一(路徑衝突之)被借者之兩借貸重疊: 其一出借點落在另一之區域內
+overlap(L1,L2,P1) :- lend(L1,P1,T1,_), lend(L2,P2,T2,_), neq(L1,L2), path_conflict(P1,P2), onregion(L1,L2).
+overlap(L1,L2,P1) :- lend(L1,P1,T1,_), lend(L2,P2,T2,_), neq(L1,L2), path_conflict(P1,P2), onregion(L2,L1).
+% 重新初始化: move/drop (D) 與使用 (S) 之間 (含 S 自身) 存在對 P 之覆蓋寫入
+reinited(D,S,P) :- write(S,P2), covers(P2,P), after(D,S).
+reinited(D,S,P) :- write(W,P2), after(D,W), after(W,S), covers(P2,P).
+
+% ---------- 錯誤 ----------
+% E01 紅弧交越: 路徑衝突之兩借用重疊, 至少一者為 mut        (~ rustc E0499/E0502)
+eclash(S) :- lend(A,P1,_,mut), lend(S,P2,T2,_), after(A,S), overlap(A,S,P1).
+eclash(S) :- lend(A,P1,T1,_), lend(S,P2,_,mut), after(A,S), overlap(A,S,P1).
+
+% E02 借用活躍期間寫入被借者 (含子字段)                     (~ rustc E0506)
+ewrite(S) :- write(S,P), onregion(L,S), lend(L,R,T,_), path_conflict(R,P).
+
+% E03 mut 借用活躍期間直接讀取被借者 (含子字段)             (~ rustc E0503)
+eread(S) :- read(S,P), onregion(L,S), lend(L,R,T,mut), path_conflict(R,P).
+
+% E04 使用點落在被借者作用域之外 (深度防禦)                 (~ rustc E0597)
+edangle(S) :- usep(S,P), stmt_of(S,N), scope_of(P,M), !inside(N,M).
+
+% E05 drop 後之讀取性使用 (寫入 = 重新初始化, 不犯)
+eadrop(S) :- readp(S,P1), drop(D,P2), after(D,S), path_conflict(P1,P2), !reinited(D,S,P2).
+
+% E06 move 後之使用 (含: 整體 move 後讀/寫子字段, 字段 move 後讀整體) (~ rustc E0382)
+emove(S) :- readp(S,P1), move(D,P2), after(D,S), path_conflict(P1,P2), !reinited(D,S,P2).
+emove(S) :- write(S,P1), move(D,P2), after(D,S), path_conflict(P1,P2), !reinited(D,S,P2).
+
+% E07 借用活躍期間 move 被借者 (含子字段)                   (~ rustc E0505)
+eloanmove(S) :- move(S,P), onregion(L,S), lend(L,R,T,_), path_conflict(R,P).
+
+% E08 借用活躍期間顯式 drop 被借者 (含子字段)
+eloandrop(S) :- drop(S,P), onregion(L,S), lend(L,R,T,_), path_conflict(R,P).
+
+% E09 別名層衝突: 參考 t 之使用點, t 自身被借用活躍        (~ rustc E0502/E0499 別名層)
+%   a) t 被 mut 借用: 任何對 t 之使用皆衝突
+erefuse(S) :- use_ref(S,T), onregion(M,S), lend(M,T,_,mut).
+%   b) t 本身是 mut 參考 (排他使用), 而被 sh 借用活躍
+erefuse(S) :- use_ref(S,T), lend(L,_,T,mut), onregion(M,S), lend(M,T,_,_), neq(M,L).
+
+% E10 逸出: 回傳參考之被借者不活得比呼叫者 (ROOT) 久       (~ rustc E0106/E0515)
+ereturn(S) :- ret(S,T), ref_of(T,P), scope_of(P,M), !same(M,@ROOT@).
