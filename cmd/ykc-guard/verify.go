@@ -135,9 +135,16 @@ func (p Project) Verify(c Claim) Verdict {
 
 	case strings.HasPrefix(c.Feature, "file:"):
 		rel := strings.TrimPrefix(c.Feature, "file:")
-		if p.hasFile(rel) {
+		switch {
+		case strings.ContainsRune(rel, '\x00') || filepath.IsAbs(rel):
+			// 邊界加固：絕對路徑/NULL 字元一律拒絕（不 verified、不讀檔案）
+			v.Verdict, v.Evidence = "contradicted", "非法檔案聲明（絕對路徑或 NULL 字元）"
+		case !insideProject(p.Dir, rel):
+			// 邊界加固：../ 逸出專案目錄的聲明視同虛無（防 path traversal）
+			v.Verdict, v.Evidence = "contradicted", "檔案聲明逸出專案目錄（path traversal 被拒絕）"
+		case p.hasFile(rel):
 			v.Verdict, v.Evidence = "verified", "檔案存在: "+rel
-		} else {
+		default:
 			v.Verdict, v.Evidence = "contradicted", "檔案不存在: "+rel
 		}
 
@@ -190,4 +197,12 @@ func contains(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+// insideProject：rel 加入 root 後是否仍在 root 內（Clean 後前綴比對）。
+// 邊界加固用：阻擋 `../../etc/passwd` 類路徑逸出。
+func insideProject(root, rel string) bool {
+	rr := filepath.Clean(root)
+	r := filepath.Clean(filepath.Join(rr, filepath.FromSlash(rel)))
+	return r == rr || strings.HasPrefix(r, rr+string(os.PathSeparator))
 }

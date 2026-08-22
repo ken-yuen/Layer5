@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"ykc/internal/claimview"
 	"ykc/internal/eventledger"
 	"ykc/internal/eventstore"
 	"ykc/internal/ledger"
@@ -83,8 +85,8 @@ type GlobalState struct {
 	Projects           []ProjectState `json:"projects"`
 }
 
-// discoverProjects 找出根目錄及其一層子目錄中含 .ykc/ledger.jsonl 的專案。
-func discoverProjects(root string, extra []string) []string {
+// discoverProjects 找出含 .ykc/ledger.jsonl 的專案（根 + 至多 depth 層子目錄）。
+func discoverProjects(root string, extra []string, depth int) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(d string) {
@@ -101,15 +103,33 @@ func discoverProjects(root string, extra []string) []string {
 		add(d)
 	}
 	add(root)
-	if ents, err := os.ReadDir(root); err == nil {
-		for _, e := range ents {
-			if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
-				add(filepath.Join(root, e.Name()))
-			}
+	walkDepth(root, depth, func(d string) {
+		if strings.HasPrefix(filepath.Base(d), ".") {
+			return
 		}
-	}
+		add(d)
+	})
 	sort.Strings(out)
 	return out
+}
+
+// walkDepth 深度優先遍歷至多 depth 層子目錄（depth 0 = 僅根，不進子目錄）。
+func walkDepth(root string, depth int, fn func(string)) {
+	if depth <= 0 {
+		return
+	}
+	ents, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	for _, e := range ents {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		d := filepath.Join(root, e.Name())
+		fn(d)
+		walkDepth(d, depth-1, fn)
+	}
 }
 
 func readReceipt(dir string) *ReceiptView {
@@ -132,7 +152,67 @@ func readReceipt(dir string) *ReceiptView {
 	return nil
 }
 
+// ── D7：觀察端快取 ─────────────────────────────────────────────
+// 大專案下 /api/state 每 poll 全量 ReadAll+VerifyChain 是 O(n)×頻度。
+// 快取鍵 = (帳本 mtime, 帳本 size, 事件檔數)：帳本 append-only，
+// 三者不變 ⇒ 狀態必然不變，直接回傳快取（零重讀）。
+type stateKey struct {
+	ledgerModTime time.Time
+	ledgerSize    int64
+	eventFiles    int
+}
+
+type stateCacheEntry struct {
+	key   stateKey
+	state ProjectState
+}
+
+var (
+	stateCacheMu sync.Mutex
+	stateCache   = map[string]stateCacheEntry{}
+)
+
+func computeStateKey(dir string) (stateKey, bool) {
+	st, err := os.Stat(filepath.Join(dir, ".ykc", "ledger.jsonl"))
+	if err != nil {
+		return stateKey{}, false
+	}
+	return stateKey{ledgerModTime: st.ModTime(), ledgerSize: st.Size(), eventFiles: countEventFiles(filepath.Join(dir, ".ykc", "events"))}, true
+}
+
+func countEventFiles(dir string) int {
+	n := 0
+	_ = filepath.WalkDir(dir, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".json") {
+			n++
+		}
+		return nil
+	})
+	return n
+}
+
 func projectState(dir string) ProjectState {
+	key, ok := computeStateKey(dir)
+	if !ok {
+		return computeProjectState(dir)
+	}
+	stateCacheMu.Lock()
+	if e, hit := stateCache[dir]; hit && e.key == key {
+		stateCacheMu.Unlock()
+		return e.state
+	}
+	stateCacheMu.Unlock()
+	ps := computeProjectState(dir)
+	stateCacheMu.Lock()
+	stateCache[dir] = stateCacheEntry{key, ps}
+	stateCacheMu.Unlock()
+	return ps
+}
+
+func computeProjectState(dir string) ProjectState {
 	ps := ProjectState{Dir: dir, Name: filepath.Base(dir), Agents: map[string]int{}}
 	path := filepath.Join(dir, ".ykc", "ledger.jsonl")
 	facts := ledger.ReadAll(path)
@@ -167,39 +247,16 @@ func projectState(dir string) ProjectState {
 				projected[bp.EventID] = true
 			}
 		}
-		switch f.Type {
-		case "claim.verdict":
-			var p struct {
-				AgentID  string `json:"agent_id"`
-				ClaimID  string `json:"claim_id"`
-				Text     string `json:"text"`
-				Verdict  string `json:"verdict"`
-				Evidence string `json:"evidence"`
-				Severity int    `json:"severity"`
-			}
-			if json.Unmarshal(f.Payload, &p) == nil {
-				ps.Verdicts = append(ps.Verdicts, VerdictView{p.AgentID, p.ClaimID, p.Text, p.Verdict, p.Evidence, p.Severity})
-			}
-		case "trust.event":
-			var p struct {
-				AgentID string `json:"agent_id"`
-				Kind    string `json:"kind"`
-				Intent  string `json:"intent"`
-				Action  string `json:"action"`
-				From    int    `json:"from"`
-				To      int    `json:"to"`
-			}
-			if json.Unmarshal(f.Payload, &p) == nil {
-				ps.TrustEvents = append(ps.TrustEvents, TrustEventView{p.AgentID, p.Kind, p.Intent, p.Action, p.From, p.To})
-				ps.Agents[p.AgentID] = p.To
-			}
-		case "trust.reset":
-			var p struct {
-				AgentID string `json:"agent_id"`
-				To      int    `json:"to"`
-			}
-			if json.Unmarshal(f.Payload, &p) == nil {
-				ps.Agents[p.AgentID] = p.To
+		// 信任事實解碼經 internal/claimview——舊（扁平）與新（bridge 信封）格式通用
+		if v, ok := claimview.Parse(f); ok {
+			switch v.Kind {
+			case claimview.KindClaimVerdict:
+				ps.Verdicts = append(ps.Verdicts, VerdictView{v.AgentID, v.ClaimID, v.Text, v.Verdict, v.Evidence, v.Severity})
+			case claimview.KindTrustEvent:
+				ps.TrustEvents = append(ps.TrustEvents, TrustEventView{v.AgentID, v.KindLabel, v.Intent, v.Action, v.From, v.To})
+				ps.Agents[v.AgentID] = v.To
+			case claimview.KindTrustReset:
+				ps.Agents[v.AgentID] = v.To
 			}
 		}
 	}
@@ -215,9 +272,9 @@ func projectState(dir string) ProjectState {
 	return ps
 }
 
-func collectState(root string, extra []string) GlobalState {
+func collectState(root string, extra []string, depth int) GlobalState {
 	gs := GlobalState{ServerTime: time.Now().UTC().Format(time.RFC3339), Projects: []ProjectState{}}
-	for _, d := range discoverProjects(root, extra) {
+	for _, d := range discoverProjects(root, extra, depth) {
 		ps := projectState(d)
 		gs.Projects = append(gs.Projects, ps)
 		gs.TotalFacts += ps.FactCount
@@ -232,7 +289,8 @@ func collectState(root string, extra []string) GlobalState {
 }
 
 // discoverCargoProjects 找出可作為「運行目標」的專案（含 Cargo.toml）。
-func discoverCargoProjects(root string, extra []string) []string {
+// discoverCargoProjects 找出可作為「運行目標」的專案（含 Cargo.toml；根 + 至多 depth 層）。
+func discoverCargoProjects(root string, extra []string, depth int) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(d string) {
@@ -249,18 +307,17 @@ func discoverCargoProjects(root string, extra []string) []string {
 		add(d)
 	}
 	add(root)
-	if ents, err := os.ReadDir(root); err == nil {
-		for _, e := range ents {
-			if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
-				add(filepath.Join(root, e.Name()))
-			}
+	walkDepth(root, depth, func(d string) {
+		if strings.HasPrefix(filepath.Base(d), ".") {
+			return
 		}
-	}
+		add(d)
+	})
 	sort.Strings(out)
 	return out
 }
 
-func rawHandler(root string, extra []string) http.HandlerFunc {
+func rawHandler(root string, extra []string, depth int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dir := r.URL.Query().Get("project")
 		if dir == "" {
@@ -268,7 +325,7 @@ func rawHandler(root string, extra []string) http.HandlerFunc {
 			return
 		}
 		resolved := ""
-		for _, d := range discoverProjects(root, extra) {
+		for _, d := range discoverProjects(root, extra, depth) {
 			if d == dir || filepath.Base(d) == dir {
 				resolved = d
 				break

@@ -3,10 +3,11 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+
+	"ykc/internal/claimview"
 )
 
 type ConsoleData struct {
@@ -112,29 +113,16 @@ func writeEvidenceReport(d ConsoleData, path string) error {
 }
 
 // readConsoleData：從帳本重建控制台資料（最近一次 score 的判決 + 現等級）。
+// 解碼經 internal/claimview——舊（扁平）與新（bridge 信封）格式通用。
 func readConsoleData(dir, agentID string) ConsoleData {
 	facts := readAll(dir)
-	d := ConsoleData{AgentID: agentID, Project: dir, Level: currentTrust(facts, agentID)}
+	d := ConsoleData{AgentID: agentID, Project: dir, Level: TrustLevel(claimview.TrustLevel(facts, agentID, int(T3)))}
 	for _, f := range facts {
-		if f.Type == "claim.verdict" {
-			var p struct {
-				AgentID string `json:"agent_id"`
-			}
-			if json.Unmarshal(f.Payload, &p) != nil || p.AgentID != agentID {
-				continue
-			}
-			var v struct {
-				ClaimID  string `json:"claim_id"`
-				Text     string `json:"text"`
-				Feature  string `json:"feature"`
-				Verdict  string `json:"verdict"`
-				Evidence string `json:"evidence"`
-				Severity int    `json:"severity"`
-			}
-			if json.Unmarshal(f.Payload, &v) == nil {
-				d.Verdicts = append(d.Verdicts, Verdict{ClaimID: v.ClaimID, Text: v.Text, Feature: v.Feature, Verdict: v.Verdict, Evidence: v.Evidence, Severity: v.Severity})
-			}
+		v, ok := claimview.Parse(f)
+		if !ok || v.AgentID != agentID || v.Kind != claimview.KindClaimVerdict {
+			continue
 		}
+		d.Verdicts = append(d.Verdicts, Verdict{ClaimID: v.ClaimID, Text: v.Text, Feature: v.Feature, Verdict: v.Verdict, Evidence: v.Evidence, Severity: v.Severity})
 	}
 	return d
 }

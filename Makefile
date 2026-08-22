@@ -35,6 +35,10 @@ export PATH := $(YKC_HOME)/bin:$(YKC_HOME)/go/bin:$(YKC_HOME)/cargo/bin:$(PATH)
 setup:
 	bash dev-setup.sh
 
+# 受限環境備援：go.dev 不可達時，自 GitHub 源碼六級 bootstrap 鏈自建 Go（見 bootstrap-go.sh）
+bootstrap-go:
+	bash bootstrap-go.sh
+
 # 一鍵跑全部功能實測（朋友下載後驗證：全部應通過；冒號後為「預期行為」）
 verify-all: build
 	@go build -o bin/ykc-judge ./cmd/ykc-judge

@@ -5,6 +5,14 @@
 //	觀察（唯讀）：/api/state、/api/raw —— 直接讀事實帳本，不產生、不改寫任何資料。
 //	控制（人類觸發）：/api/projects、/api/jobs —— 揀專案、啟動/停止 YKC 動作、實時日誌。
 //
+// 安全邊界（S1 修復）：
+//
+//   - 預設綁 127.0.0.1（本機）；要暴露到網路必須顯式 -addr 0.0.0.0:PORT。
+//   - 控制端點（POST /api/jobs、/api/jobs/stop）可要求 Bearer token（-token
+//     或 YKC_PANEL_TOKEN）；未設定 token 時暴露到非本機位址會打印醒目警告。
+//   - 任務的 project 參數必須在「已發現的 Cargo 專案白名單」內（任意路徑拒收）。
+//   - 請求體限長（MaxBytesReader）。
+//
 // 端點：
 //
 //	GET  /                     人類面板（內嵌 HTML，零外部依賴）
@@ -18,13 +26,16 @@
 package main
 
 import (
+	"crypto/subtle"
 	"embed"
 	"encoding/json"
 	"flag"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -32,12 +43,16 @@ import (
 //go:embed dashboard.html
 var dashboardFS embed.FS
 
+const maxBodyBytes = 1 << 20 // 1MB 請求體上限
+
 func main() {
 	root := flag.String("root", ".", "掃描根目錄（觀察：含 .ykc 的專案；控制：含 Cargo.toml 的專案）")
 	dirs := flag.String("dir", "", "額外專案目錄（逗號分隔）")
 	port := flag.Int("port", 8080, "監聽埠")
-	addr := flag.String("addr", "", "綁定位址（預設 :8080 全部介面；本機用 127.0.0.1:8080）")
+	addr := flag.String("addr", "127.0.0.1", "綁定位址（預設 127.0.0.1 本機；暴露到網路請顯式 0.0.0.0 並建議 -token）")
 	bindir := flag.String("bindir", "./bin", "ykc 二進制目錄")
+	token := flag.String("token", os.Getenv("YKC_PANEL_TOKEN"), "控制端點 Bearer token（空 = 不驗證；暴露到網路時強烈建議設定）")
+	depth := flag.Int("depth", 1, "專案發現掃描深度（0=僅根目錄，1=根+一層子目錄，預設）")
 	flag.Parse()
 
 	extra := []string{}
@@ -57,10 +72,13 @@ func main() {
 	if abs, err := filepath.Abs(*bindir); err == nil {
 		*bindir = abs
 	}
+	if *depth < 0 {
+		*depth = 0
+	}
 
 	ensureToolchainPath()
 
-	jm := newJobManager(*bindir)
+	jm := newJobManager(*bindir, *root)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -70,20 +88,25 @@ func main() {
 		}
 		b, _ := dashboardFS.ReadFile("dashboard.html")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(b)
 	})
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, collectState(*root, extra))
+		writeJSON(w, collectState(*root, extra, *depth))
 	})
-	mux.HandleFunc("/api/raw", rawHandler(*root, extra))
+	mux.HandleFunc("/api/raw", rawHandler(*root, extra, *depth))
 	mux.HandleFunc("/api/projects", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"projects": discoverCargoProjects(*root, extra)})
+		writeJSON(w, map[string]any{"projects": discoverCargoProjects(*root, extra, *depth)})
 	})
 	mux.HandleFunc("/api/jobs", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			writeJSON(w, map[string]any{"jobs": jm.List()})
 		case http.MethodPost:
+			if !authed(w, r, *token) {
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 			var req struct {
 				Action  string `json:"action"`
 				Project string `json:"project"`
@@ -93,7 +116,7 @@ func main() {
 				http.Error(w, "需要 action 與 project", http.StatusBadRequest)
 				return
 			}
-			j, err := jm.Start(req.Action, req.Project, req.Claims)
+			j, err := jm.Start(*root, req.Action, req.Project, req.Claims)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -104,6 +127,14 @@ func main() {
 		}
 	})
 	mux.HandleFunc("/api/jobs/stop", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !authed(w, r, *token) {
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		var req struct {
 			ID string `json:"id"`
 		}
@@ -122,14 +153,44 @@ func main() {
 	})
 
 	listen := *addr
-	if listen == "" {
-		listen = ":" + itoa(*port)
+	if _, _, err := net.SplitHostPort(listen); err != nil {
+		// 未帶埠號（含空字串）→ 補上 -port
+		listen = net.JoinHostPort(listen, strconv.Itoa(*port))
 	}
-	log.Printf("YKC Trust Console listening on %s (root=%s, bindir=%s)", listen, *root, *bindir)
+	// 安全警告：暴露到非本機位址且無 token = 任何人都能觸發任務
+	if *token == "" && !isLoopback(listen) {
+		log.Printf("⚠️  安全警告：面板綁定 %s（非本機）且未設定 token——LAN 內任何主機可觸發任務。建議 -token <密鑰> 或 -addr 127.0.0.1", listen)
+	}
+	log.Printf("YKC Trust Console listening on %s (root=%s, bindir=%s, depth=%d)", listen, *root, *bindir, *depth)
 	srv := &http.Server{Addr: listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// authed 驗證 Bearer token（timing-safe）；token 為空時放行。
+func authed(w http.ResponseWriter, r *http.Request, token string) bool {
+	if token == "" {
+		return true
+	}
+	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
+func isLoopback(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		host = listen
+	}
+	if host == "" || host == "::" || host == "0.0.0.0" || host == "[::]" {
+		return false // 全部介面
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -193,9 +254,4 @@ func ensureToolchainPath() {
 		cur := os.Getenv("PATH")
 		os.Setenv("PATH", strings.Join(append(prepend, cur), string(os.PathListSeparator)))
 	}
-}
-
-func itoa(n int) string {
-	return strings.TrimSpace(strings.ReplaceAll(
-		func() string { b, _ := json.Marshal(n); return string(b) }(), "\"", ""))
 }

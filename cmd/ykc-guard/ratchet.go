@@ -5,8 +5,6 @@ package main
 
 import (
 	"encoding/json"
-
-	"ykc/internal/ledger"
 )
 
 type TrustLevel int
@@ -99,28 +97,5 @@ func ApplyAll(from TrustLevel, verdicts []Verdict) (TrustLevel, []RatchetEvent) 
 	return level, events
 }
 
-// currentTrust：從帳本重建某代理的當前信任等級（無紀錄 = T3）。
-func currentTrust(facts []ledger.Fact, agentID string) TrustLevel {
-	level := T3
-	for _, f := range facts {
-		switch f.Type {
-		case "trust.event":
-			var p struct {
-				AgentID string `json:"agent_id"`
-				To      int    `json:"to"`
-			}
-			if json.Unmarshal(f.Payload, &p) == nil && p.AgentID == agentID {
-				level = TrustLevel(p.To)
-			}
-		case "trust.reset":
-			var p struct {
-				AgentID string `json:"agent_id"`
-				To      int    `json:"to"`
-			}
-			if json.Unmarshal(f.Payload, &p) == nil && p.AgentID == agentID {
-				level = TrustLevel(p.To)
-			}
-		}
-	}
-	return level
-}
+// 信任等級重建已收斂到 internal/claimview.TrustLevel（同時相容舊扁平格式
+// 與 eventledger bridge 信封格式）——ratchet 只負責「棘輪計算」本身。

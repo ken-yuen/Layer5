@@ -17,6 +17,11 @@ const (
 	EventPrecompileReport  EventKind = "precompile.report"
 	EventGuardrailDecision EventKind = "guardrail.decision"
 	EventGuardrailAction   EventKind = "guardrail.action"
+	// 反欺騙裁判事件（ykc-guard 經 eventledger bridge 寫入；
+	// 投影事實型別 = "event." + 以下值，見 internal/claimview）。
+	EventClaimVerdict EventKind = "claim.verdict"
+	EventTrustEvent   EventKind = "trust.event"
+	EventTrustReset   EventKind = "trust.reset"
 )
 
 // Envelope is the immutable unit persisted by the event store.

@@ -74,19 +74,34 @@ func Open(stateDir string, actor string) (*Bridge, error) {
 	return &Bridge{Events: events, LedgerPath: filepath.Join(stateDir, "ledger.jsonl"), Actor: actor}, nil
 }
 
+// Append 提交事件並投影到 hash 鏈帳本。
+// 去重檢查在取得帳本寫鎖（flock）**之後**執行——消除「兩程序同時判定
+// 未投影 → 重複投影」的 TOCTOU 窗口。
 func (b *Bridge) Append(e domain.Envelope) (AppendResult, error) {
 	if b == nil || b.Events == nil {
 		return AppendResult{}, errors.New("nil event ledger bridge")
 	}
-	committed, err := b.Events.Append(e)
+	committed, err := b.Events.Append(e) // store 會為空 ID 自動產生
 	if err != nil {
 		return AppendResult{}, err
 	}
-	seq, head, already, err := b.projectIfMissing(committed)
+	if committed.ID == "" {
+		return AppendResult{}, errors.New("cannot project event without id")
+	}
+	led, err := ledger.Open(b.LedgerPath)
 	if err != nil {
 		return AppendResult{Event: committed}, err
 	}
-	return AppendResult{Event: committed, LedgerSeq: seq, LedgerHash: head, AlreadySeen: already}, nil
+	defer led.Close()
+	if hasProjectedID(ledger.ReadAll(b.LedgerPath), committed.ID) {
+		_, head, _ := ledger.VerifyChain(b.LedgerPath)
+		return AppendResult{Event: committed, LedgerHash: head, AlreadySeen: true}, nil
+	}
+	seq, err := led.Append(FactType(committed.Kind), b.Actor, NewBridgePayload(committed))
+	if err != nil {
+		return AppendResult{Event: committed}, err
+	}
+	return AppendResult{Event: committed, LedgerSeq: seq, LedgerHash: led.Head()}, nil
 }
 
 func (b *Bridge) ReplayEvents() ([]domain.Envelope, error) {
@@ -96,6 +111,9 @@ func (b *Bridge) ReplayEvents() ([]domain.Envelope, error) {
 	return b.Events.Replay()
 }
 
+// SyncMissing 把「已提交但未投影」的事件批量補進帳本。
+// 效能修正（D3）：舊版對每個事件各做一次全量 ReadAll + 全量 Open（O(n²)）；
+// 現在只讀一次建索引、只開一次帳本（持鎖批量 append），整體 O(n)。
 func (b *Bridge) SyncMissing() (SyncResult, error) {
 	if b == nil || b.Events == nil {
 		return SyncResult{}, errors.New("nil event ledger bridge")
@@ -104,24 +122,28 @@ func (b *Bridge) SyncMissing() (SyncResult, error) {
 	if err != nil {
 		return SyncResult{}, err
 	}
-	seen := b.projectedEventIDs()
 	res := SyncResult{EventsSeen: len(events)}
+	led, err := ledger.Open(b.LedgerPath)
+	if err != nil {
+		return res, err
+	}
+	defer led.Close()
+	seen := projectedIDs(ledger.ReadAll(b.LedgerPath))
 	for _, e := range events {
 		if seen[e.ID] {
 			res.AlreadyProjected++
 			continue
 		}
-		_, _, _, err := b.projectIfMissing(e)
-		if err != nil {
+		if _, err := led.Append(FactType(e.Kind), b.Actor, NewBridgePayload(e)); err != nil {
 			res.MissingFailed = append(res.MissingFailed, e.ID+": "+err.Error())
 			continue
 		}
 		seen[e.ID] = true
 		res.Projected++
 	}
-	_, head, err := ledger.VerifyChain(b.LedgerPath)
-	if err == nil {
+	if ok, head, verr := ledger.VerifyChain(b.LedgerPath); verr == nil {
 		res.LedgerHead = head
+		_ = ok
 	}
 	if len(res.MissingFailed) > 0 {
 		return res, fmt.Errorf("failed to project %d event(s)", len(res.MissingFailed))
@@ -136,25 +158,26 @@ func (b *Bridge) VerifyLedger() (bool, string, error) {
 	return ledger.VerifyChain(b.LedgerPath)
 }
 
-func (b *Bridge) projectIfMissing(e domain.Envelope) (seq uint64, head string, already bool, err error) {
-	if e.ID == "" {
-		return 0, "", false, errors.New("cannot project event without id")
+// Close 釋放橋接持有的資源（目前帳本採「開-寫-關」每次 Append 自含，
+// 此方法為呼叫端 defer 語意保留；可安全重複呼叫）。
+func (b *Bridge) Close() error {
+	return nil
+}
+
+// hasProjectedID：線性檢查（單事件 append 路徑用；批量路徑用 projectedIDs 索引）。
+func hasProjectedID(facts []ledger.Fact, eventID string) bool {
+	for _, f := range facts {
+		if !strings.HasPrefix(f.Type, FactPrefix) {
+			continue
+		}
+		var p struct {
+			EventID string `json:"event_id"`
+		}
+		if json.Unmarshal(f.Payload, &p) == nil && p.EventID == eventID {
+			return true
+		}
 	}
-	if b.projectedEventIDs()[e.ID] {
-		_, head, _ := ledger.VerifyChain(b.LedgerPath)
-		return 0, head, true, nil
-	}
-	led, err := ledger.Open(b.LedgerPath)
-	if err != nil {
-		return 0, "", false, err
-	}
-	defer led.Close()
-	payload := NewBridgePayload(e)
-	seq, err = led.Append(FactType(e.Kind), b.Actor, payload)
-	if err != nil {
-		return 0, "", false, err
-	}
-	return seq, led.Head(), false, nil
+	return false
 }
 
 func NewBridgePayload(e domain.Envelope) BridgePayload {
@@ -193,9 +216,10 @@ func IsBridgeFact(f ledger.Fact) bool {
 	return p.BridgeVersion > 0 && p.EventID != ""
 }
 
-func (b *Bridge) projectedEventIDs() map[string]bool {
-	out := map[string]bool{}
-	for _, f := range ledger.ReadAll(b.LedgerPath) {
+// projectedIDs：一次讀全表、建已投影事件 id 索引（批量補償路徑用）。
+func projectedIDs(facts []ledger.Fact) map[string]bool {
+	out := make(map[string]bool, len(facts))
+	for _, f := range facts {
 		if !strings.HasPrefix(f.Type, FactPrefix) {
 			continue
 		}

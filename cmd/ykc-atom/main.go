@@ -56,11 +56,23 @@ Commands:
 `)
 }
 
+// requireRoot 邊界加固：workspace root 必須存在且為目錄。
+func requireRoot(root string) error {
+	fi, err := os.Stat(root)
+	if err != nil || !fi.IsDir() {
+		return fmt.Errorf("root 目錄不存在: %s", root)
+	}
+	return nil
+}
+
 func cmdSnapshot(args []string) error {
 	fs := flag.NewFlagSet("snapshot", flag.ExitOnError)
 	root := fs.String("root", ".", "workspace root")
 	state := fs.String("state", ".ykc", "YKC state directory")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := requireRoot(*root); err != nil {
 		return err
 	}
 	snap, err := monitor.Snapshotter{Root: *root}.Capture()
@@ -93,6 +105,9 @@ func cmdClaim(args []string) error {
 	text := fs.String("text", "", "claim text")
 	runSmoke := fs.Bool("smoke", false, "run smoke takeover commands if decision requests it")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := requireRoot(*root); err != nil {
 		return err
 	}
 	if *kind == "" {
@@ -130,7 +145,7 @@ func cmdClaim(args []string) error {
 		return err
 	}
 	if decision.RunSmoke && *runSmoke {
-		report, err := smoke.Runner{}.Run(context.Background(), smoke.DefaultRustSmoke(mustAbs(*root)))
+		report, err := smoke.Runner{FailFast: true}.Run(context.Background(), smoke.DefaultRustSmoke(mustAbs(*root)))
 		if err != nil {
 			return err
 		}
@@ -161,6 +176,9 @@ func cmdSmoke(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if err := requireRoot(*root); err != nil {
+		return err
+	}
 	stateDir := absState(*root, *state)
 	bridge, err := eventledger.Open(stateDir, "ykc-atom")
 	if err != nil {
@@ -177,7 +195,7 @@ func cmdSmoke(args []string) error {
 			specs[i].Timeout = *timeout
 		}
 	}
-	report, err := smoke.Runner{}.Run(context.Background(), specs)
+	report, err := smoke.Runner{FailFast: true}.Run(context.Background(), specs)
 	if err != nil {
 		return err
 	}
@@ -218,6 +236,9 @@ func cmdSyncLedger(args []string) error {
 	root := fs.String("root", ".", "workspace root")
 	state := fs.String("state", ".ykc", "YKC state directory")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := requireRoot(*root); err != nil {
 		return err
 	}
 	stateDir := absState(*root, *state)

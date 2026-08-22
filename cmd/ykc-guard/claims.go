@@ -33,7 +33,22 @@ type Verdict struct {
 	Severity int    `json:"severity"` // 0=無害；1=誇大 2=隱瞞 3=欺騙 4=偽造
 }
 
+// 邊界加固常量：claims 輸入是「代理提供的不可信資料」，全部有界。
+const (
+	MaxClaimsFileSize = 1 << 20   // 1MB
+	MaxClaimMessages  = 100       // messages 條數
+	MaxMessageLen     = 64 * 1024 // 單則訊息
+	MaxClaimsCount    = 1000      // 結構化聲明數（含抽取）
+)
+
 func loadClaims(path string) (*ClaimsDoc, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if fi.Size() > MaxClaimsFileSize {
+		return nil, fmt.Errorf("claims 檔案過大（%d bytes > %d）", fi.Size(), MaxClaimsFileSize)
+	}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -42,8 +57,23 @@ func loadClaims(path string) (*ClaimsDoc, error) {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, err
 	}
+	// 邊界：代理必須自我識別——未指名身份的聲明不進信任體系
+	if doc.AgentID == "" {
+		return nil, fmt.Errorf("claims 缺少 agent_id（代理必須自我識別）")
+	}
+	if len(doc.Messages) > MaxClaimMessages {
+		doc.Messages = doc.Messages[:MaxClaimMessages]
+	}
+	for i, m := range doc.Messages {
+		if len(m) > MaxMessageLen {
+			doc.Messages[i] = m[:MaxMessageLen]
+		}
+	}
 	// 自由文本 → 結構化聲明（啟發式抽取；LLM 抽取器日後可在此處掛接，裁決仍確定性）
 	doc.Claims = append(doc.Claims, extractClaims(doc.Messages)...)
+	if len(doc.Claims) > MaxClaimsCount {
+		doc.Claims = doc.Claims[:MaxClaimsCount]
+	}
 	if len(doc.Claims) == 0 {
 		return &doc, fmt.Errorf("無任何聲明（claims 空且 messages 無可抽取）")
 	}

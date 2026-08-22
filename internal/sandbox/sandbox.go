@@ -5,17 +5,16 @@ package sandbox
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"hash"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"ykc/internal/tail"
 )
 
 type Backend string
@@ -171,8 +170,8 @@ func Run(ctx context.Context, cfg Config, command string, args ...string) Result
 	cmd := exec.CommandContext(ctx, name, fullArgs...)
 	cmd.Dir = workdir
 	cmd.Env = buildEnv(cfg)
-	stdout := newTailBuffer(cfg.MaxOutput)
-	stderr := newTailBuffer(cfg.MaxOutput)
+	stdout := tail.NewBuffer(cfg.MaxOutput)
+	stderr := tail.NewBuffer(cfg.MaxOutput)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err = cmd.Run()
@@ -308,7 +307,12 @@ func buildEnv(cfg Config) []string {
 			values[k] = v
 		}
 	}
+	// 邊界加固：cfg.Env 的 key 必須是合法環境變數名——容器後端會把每個 key
+	// 變成一個 `-e k=v` 參數，非法 key（含空白/`=`/前導 `-`）可被用來注入參數。
 	for k, v := range cfg.Env {
+		if !validEnvKey(k) {
+			continue // 靜默丟棄非法 key（不影響安全：只是不被注入）
+		}
 		values[k] = v
 	}
 	keys := make([]string, 0, len(values))
@@ -321,6 +325,26 @@ func buildEnv(cfg Config) []string {
 		env = append(env, k+"="+values[k])
 	}
 	return env
+}
+
+// validEnvKey：POSIX 環境變數名（字母/數字/底線，不以數字開頭）。
+func validEnvKey(k string) bool {
+	if k == "" {
+		return false
+	}
+	for i, c := range k {
+		switch {
+		case c == '_':
+		case c >= '0' && c <= '9':
+			if i == 0 {
+				return false
+			}
+		case (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func probeDockerRunsc() Capability {
@@ -375,44 +399,4 @@ func probePodman() Capability {
 func failedResult(backend Backend, command string, args []string, err error) Result {
 	now := time.Now().UTC()
 	return Result{Backend: backend, Command: command, Args: args, StartedAt: now, FinishedAt: now, ExitCode: -1, Err: err.Error(), Isolation: TrustNone}
-}
-
-type tailBuffer struct {
-	Limit int
-	total int64
-	h     hash.Hash
-	buf   []byte
-}
-
-func newTailBuffer(limit int) *tailBuffer {
-	return &tailBuffer{Limit: limit, h: sha256.New()}
-}
-
-func (b *tailBuffer) Write(p []byte) (int, error) {
-	_, _ = b.h.Write(p)
-	b.total += int64(len(p))
-	if b.Limit <= 0 {
-		b.buf = append(b.buf, p...)
-		return len(p), nil
-	}
-	if len(p) >= b.Limit {
-		b.buf = append(b.buf[:0], p[len(p)-b.Limit:]...)
-		return len(p), nil
-	}
-	b.buf = append(b.buf, p...)
-	if len(b.buf) > b.Limit {
-		copy(b.buf, b.buf[len(b.buf)-b.Limit:])
-		b.buf = b.buf[:b.Limit]
-	}
-	return len(p), nil
-}
-
-func (b *tailBuffer) Bytes() []byte   { return b.buf }
-func (b *tailBuffer) SumHex() string  { return hex.EncodeToString(b.h.Sum(nil)) }
-func (b *tailBuffer) Truncated() bool { return b.Limit > 0 && b.total > int64(len(b.buf)) }
-func (b *tailBuffer) String() string {
-	if b.Truncated() {
-		return fmt.Sprintf("...<truncated; kept last %d of %d bytes>\n%s", len(b.buf), b.total, string(b.buf))
-	}
-	return string(b.buf)
 }

@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"ykc/internal/claimview"
 	"ykc/internal/rustutil"
 )
 
@@ -78,7 +80,15 @@ func callTool(dir, name string, args map[string]any) map[string]any {
 		if cp == "" {
 			return toolResult("需要 claims_path 參數", true)
 		}
-		doc, err := loadClaims(cp)
+		absCP, err := filepath.Abs(cp)
+		if err != nil {
+			return toolResult("claims_path 無法解析："+err.Error(), true)
+		}
+		// 邊界加固：claims 檔必須在專案目錄內（防經 MCP 讀任意檔案）
+		if !insideProject(dir, absCP) {
+			return toolResult("claims_path 必須在專案目錄內", true)
+		}
+		doc, err := loadClaims(absCP)
 		if err != nil {
 			return toolResult("載入 claims 失敗："+err.Error(), true)
 		}
@@ -91,8 +101,11 @@ func callTool(dir, name string, args map[string]any) map[string]any {
 
 	case "ykc.trust_status":
 		agent, _ := args["agent_id"].(string)
+		if agent == "" {
+			return toolResult("需要 agent_id 參數", true)
+		}
 		facts := readAll(dir)
-		lvl := currentTrust(facts, agent)
+		lvl := TrustLevel(claimview.TrustLevel(facts, agent, int(T3)))
 		return toolResult(fmt.Sprintf("代理 %s 信任等級 = %s", agent, lvl), false)
 
 	default:

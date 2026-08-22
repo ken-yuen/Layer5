@@ -80,8 +80,16 @@ func main() {
 	rootDir := filepath.Dir(absFile)
 
 	cmd := exec.Command(server)
-	stdin, _ := cmd.StdinPipe()
-	stdout, _ := cmd.StdoutPipe()
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "建立 stdin pipe 失敗:", err)
+		os.Exit(1)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "建立 stdout pipe 失敗:", err)
+		os.Exit(1)
+	}
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "啟動", server, "失敗:", err)

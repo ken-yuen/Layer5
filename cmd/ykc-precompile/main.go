@@ -31,6 +31,12 @@ func main() {
 	state := flag.String("state", ".ykc", "state directory for report; empty disables write")
 	flag.Parse()
 
+	// 邊界加固：專案目錄必須存在且為目錄（防止對不存在/非常規路徑產生偽報告）。
+	if fi, err := os.Stat(*project); err != nil || !fi.IsDir() {
+		fmt.Fprintln(os.Stderr, "ykc-precompile: project 目錄不存在:", *project)
+		os.Exit(1)
+	}
+
 	opt := precompile.DefaultOptions(*project)
 	opt.Backend = sandbox.NormalizeBackend(*backend)
 	opt.AllowNative = *allowNative
@@ -80,7 +86,7 @@ func main() {
 	} else {
 		fmt.Printf("YKC precompile: %s\n", rep.Overall)
 		for _, st := range rep.Stages {
-			fmt.Printf("- %s: %s errors=%d warnings=%d\n", st.Name, st.Status, st.Diagnostics.Errors, st.Diagnostics.Warnings)
+			fmt.Printf("- %s: %s errors=%d warnings=%d\n", st.Name, st.Status, st.Diagnostics.ErrorCount, st.Diagnostics.WarningCount)
 		}
 	}
 	if rep.Overall == precompile.StatusFailed || rep.Overall == precompile.StatusUnsupported {

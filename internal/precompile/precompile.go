@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"ykc/internal/domain"
 	"ykc/internal/sandbox"
 )
 
@@ -42,30 +43,34 @@ type Options struct {
 }
 
 type Stage struct {
-	Name            string             `json:"name"`
-	Status          Status             `json:"status"`
-	Command         []string           `json:"command,omitempty"`
-	Sandbox         sandbox.Backend    `json:"sandbox,omitempty"`
-	Isolation       sandbox.TrustLevel `json:"isolation,omitempty"`
-	StartedAt       time.Time          `json:"started_at,omitempty"`
-	FinishedAt      time.Time          `json:"finished_at,omitempty"`
-	ExitCode        int                `json:"exit_code,omitempty"`
-	TimedOut        bool               `json:"timed_out,omitempty"`
-	Diagnostics     DiagnosticSummary  `json:"diagnostics,omitempty"`
-	Notes           []string           `json:"notes,omitempty"`
-	StdoutTail      string             `json:"stdout_tail,omitempty"`
-	StderrTail      string             `json:"stderr_tail,omitempty"`
-	StdoutTruncated bool               `json:"stdout_truncated,omitempty"`
-	StderrTruncated bool               `json:"stderr_truncated,omitempty"`
+	Name       string             `json:"name"`
+	Status     Status             `json:"status"`
+	Command    []string           `json:"command,omitempty"`
+	Sandbox    sandbox.Backend    `json:"sandbox,omitempty"`
+	Isolation  sandbox.TrustLevel `json:"isolation,omitempty"`
+	StartedAt  time.Time          `json:"started_at,omitempty"`
+	FinishedAt time.Time          `json:"finished_at,omitempty"`
+	ExitCode   int                `json:"exit_code,omitempty"`
+	TimedOut   bool               `json:"timed_out,omitempty"`
+	// Diagnostics 是正規化的 domain.DiagnosticSummary——與護欄/事件流同一 schema
+	// （S3 修復：消除 precompile 自訂 DiagnosticSummary 與 domain 版的字段斷層）。
+	Diagnostics     domain.DiagnosticSummary `json:"diagnostics,omitempty"`
+	Messages        []Diagnostic             `json:"messages,omitempty"`
+	RawJSONLines    int                      `json:"raw_json_lines,omitempty"`
+	NonJSONLines    int                      `json:"non_json_lines,omitempty"`
+	Notes           []string                 `json:"notes,omitempty"`
+	StdoutTail      string                   `json:"stdout_tail,omitempty"`
+	StderrTail      string                   `json:"stderr_tail,omitempty"`
+	StdoutTruncated bool                     `json:"stdout_truncated,omitempty"`
+	StderrTruncated bool                     `json:"stderr_truncated,omitempty"`
 }
 
-type DiagnosticSummary struct {
-	Errors       int          `json:"errors"`
-	Warnings     int          `json:"warnings"`
-	Messages     []Diagnostic `json:"messages,omitempty"`
-	RawJSONLines int          `json:"raw_json_lines"`
-	NonJSONLines int          `json:"non_json_lines"`
-	Digest       string       `json:"digest,omitempty"`
+// ParseResult 是一次診斷解析的完整產出：正規化摘要（domain schema）+ 明細 + 統計。
+type ParseResult struct {
+	Summary      domain.DiagnosticSummary
+	Messages     []Diagnostic
+	RawJSONLines int
+	NonJSONLines int
 }
 
 type Diagnostic struct {
@@ -237,8 +242,13 @@ func runStage(ctx context.Context, opt Options, rep *Report, name string, networ
 	cfg := sandbox.Config{Backend: opt.Backend, ProjectDir: opt.ProjectDir, Timeout: opt.Timeout, Network: network, AllowNative: opt.AllowNative, Image: opt.Image, MaxOutput: 512 * 1024, Env: sandboxEnv(opt, cap.Backend)}
 	res := sandbox.Run(ctx, cfg, command, args...)
 	stage := Stage{Name: name, Command: append([]string{command}, args...), Sandbox: res.Backend, Isolation: res.Isolation, StartedAt: res.StartedAt, FinishedAt: res.FinishedAt, ExitCode: res.ExitCode, TimedOut: res.TimedOut, StdoutTail: res.StdoutTail, StderrTail: res.StderrTail, StdoutTruncated: res.StdoutTruncated, StderrTruncated: res.StderrTruncated}
-	stage.Diagnostics = ParseDiagnostics(res.StdoutTail + "\n" + res.StderrTail)
-	if res.Succeeded() && stage.Diagnostics.Errors == 0 {
+	parsed := ParseDiagnostics(res.StdoutTail + "\n" + res.StderrTail)
+	stage.Diagnostics = parsed.Summary
+	stage.Diagnostics.At = res.FinishedAt
+	stage.Messages = parsed.Messages
+	stage.RawJSONLines = parsed.RawJSONLines
+	stage.NonJSONLines = parsed.NonJSONLines
+	if res.Succeeded() && stage.Diagnostics.ErrorCount == 0 {
 		stage.Status = StatusPassed
 	} else {
 		stage.Status = StatusFailed
@@ -250,10 +260,14 @@ func runStage(ctx context.Context, opt Options, rep *Report, name string, networ
 	rep.Stages = append(rep.Stages, stage)
 }
 
-func ParseDiagnostics(text string) DiagnosticSummary {
+// ParseDiagnostics 解析 cargo/rustc 的 JSON 診斷流。
+// 回傳的 Summary 是 domain.DiagnosticSummary——與護欄（guardrail.EvaluateClaim）
+// 解碼 diagnostic.summary 事件所用的型別一致，接線時零轉換。
+func ParseDiagnostics(text string) ParseResult {
 	sc := bufio.NewScanner(strings.NewReader(text))
 	sc.Buffer(make([]byte, 1024*1024), 1024*1024)
-	var out DiagnosticSummary
+	var out ParseResult
+	out.Summary.Tool = "rustc"
 	h := sha256.New()
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -268,17 +282,19 @@ func ParseDiagnostics(text string) DiagnosticSummary {
 		h.Write([]byte(line))
 		if d, ok := parseOne(line); ok {
 			if d.Level == "error" {
-				out.Errors++
+				out.Summary.ErrorCount++
 			} else if d.Level == "warning" {
-				out.Warnings++
+				out.Summary.WarningCount++
 			}
 			if d.Level == "error" || d.Level == "warning" {
 				out.Messages = append(out.Messages, d)
 			}
 		}
 	}
+	// build-blocking = 所有 error 級診斷（rustc 語境）
+	out.Summary.BuildBlockingCount = out.Summary.ErrorCount
 	if out.RawJSONLines > 0 {
-		out.Digest = hex.EncodeToString(h.Sum(nil))
+		out.Summary.Digest = hex.EncodeToString(h.Sum(nil))
 	}
 	return out
 }

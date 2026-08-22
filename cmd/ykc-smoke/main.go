@@ -7,9 +7,14 @@
 //	T1 contract  — 從 --help 枚舉子命令逐一驗證；panic 探測（應優雅失敗而非 panic）
 //	T2 behavior  — cargo test + examples（有 example 才測，無則 skip）
 //	T3 claims    — 把「代理聲明」與二進制真實介面做確定性比對
+//
+// S2 修復：所有命令執行（cargo / 被測二進制）一律經 internal/smoke.Runner
+// （全專案唯一的命令執行核心：超時、全量 hash、尾部保留、fail-fast 開關）。
+// 本檔案只保留「檢查語意 + 收據」——不再自己 exec、不再自己處理輸出。
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -19,10 +24,12 @@ import (
 	"strings"
 	"time"
 
+	"ykc/internal/domain"
 	"ykc/internal/rustutil"
+	"ykc/internal/smoke"
 )
 
-// ---------- 資料型別 ----------
+// ---------- 資料型別（收據 JSON 格式維持既有約定） ----------
 
 type Check struct {
 	ID          string `json:"id"`
@@ -65,14 +72,67 @@ type Receipt struct {
 	Overall   string         `json:"overall"` // pass|fail
 }
 
-// workDir：所有子行程的執行目錄，指向受測專案。
-var workDir string
+// ---------- 執行核心接線 ----------
 
-func run(name string, args ...string) (string, string, int) {
-	return rustutil.Run(workDir, name, args...)
+var (
+	runner   smoke.Runner
+	specByID map[string]smoke.CommandSpec
+	resultOf func(id string) (domain.CommandResult, bool)
+)
+
+// runSpecs 執行一批 spec（FailFast=false：分層煙測要列齊每層結果），
+// 並記下 spec→result 索引供檢查層使用。
+func runSpecs(ctx context.Context, specs []smoke.CommandSpec) {
+	for _, s := range specs {
+		specByID[s.ID] = s
+	}
+	rep, err := runner.Run(ctx, specs)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "smoke runner:", err)
+		os.Exit(1)
+	}
+	idx := map[string]domain.CommandResult{}
+	for _, r := range rep.Results {
+		idx[r.CommandID] = r
+	}
+	resultOf = func(id string) (domain.CommandResult, bool) {
+		r, ok := idx[id]
+		return r, ok
+	}
 }
 
-// ---------- 各層檢查 ----------
+func cmdOf(id string) string {
+	s, ok := specByID[id]
+	if !ok {
+		return ""
+	}
+	return s.Name + " " + strings.Join(s.Args, " ")
+}
+
+// resCheck 把 CommandResult 映射為收據 Check（退出碼 + 全量 SHA + panic 偵測）。
+func resCheck(id, kind string, res domain.CommandResult, okCond func(domain.CommandResult) bool, passNote, failNote string) Check {
+	c := Check{
+		ID:          id,
+		Kind:        kind,
+		Command:     cmdOf(id),
+		ExitCode:    res.ExitCode,
+		StdoutSHA:   res.StdoutSHA256,
+		StderrSHA:   res.StderrSHA256,
+		PanicDetect: rustutil.PanicDetected(res.StderrTail),
+	}
+	if okCond(res) {
+		c.Status = "pass"
+		c.Note = passNote
+	} else {
+		c.Status = "fail"
+		if failNote != "" {
+			c.Note = failNote
+		}
+	}
+	return c
+}
+
+// ---------- 各層檢查（語意層；執行已收斂到 runner） ----------
 
 // T0：sanity
 func checkSanity(bin string) []Check {
@@ -82,58 +142,6 @@ func checkSanity(bin string) []Check {
 		return out
 	}
 	out = append(out, Check{ID: "T0.binary", Kind: "sanity", Command: bin, Status: "pass", Note: "binary exists"})
-
-	for _, arg := range []string{"--version", "--help"} {
-		so, se, code := run(bin, arg)
-		c := Check{ID: "T0." + strings.TrimPrefix(arg, "--"), Kind: "sanity", Command: bin + " " + arg, ExitCode: code, StdoutSHA: rustutil.SHA256Hex(so), StderrSHA: rustutil.SHA256Hex(se)}
-		if code == 0 && !rustutil.PanicDetected(se) {
-			c.Status = "pass"
-		} else {
-			c.Status = "fail"
-			c.Note = fmt.Sprintf("exit=%d", code)
-		}
-		out = append(out, c)
-	}
-	return out
-}
-
-// T1：CLI 契約 + panic 探測
-func checkContract(bin string) []Check {
-	var out []Check
-	so, _, _ := run(bin, "--help")
-	subs := rustutil.Subcommands(so)
-
-	// 每個子命令 --help 必須 exit 0 且不 panic
-	for _, sub := range subs {
-		so2, se2, code := run(bin, sub, "--help")
-		c := Check{ID: "T1.sub." + sub, Kind: "contract", Command: bin + " " + sub + " --help", ExitCode: code, StdoutSHA: rustutil.SHA256Hex(so2), StderrSHA: rustutil.SHA256Hex(se2), PanicDetect: rustutil.PanicDetected(se2)}
-		if code == 0 && !rustutil.PanicDetected(se2) {
-			c.Status = "pass"
-		} else {
-			c.Status = "fail"
-		}
-		out = append(out, c)
-	}
-
-	// panic 探測：未知旗標、第一個子命令缺必要參數 → 應「優雅失敗」(非 101 panic)
-	// 註：probe 對任何 CLI 通用——不存在/缺參一律應優雅退出，不 panic。
-	probes := [][]string{{"--zzz-not-a-real-flag"}}
-	if len(subs) > 0 {
-		probes = append(probes, []string{subs[0]})
-	}
-	for _, p := range probes {
-		so2, se2, code := run(bin, p...)
-		panicked := rustutil.PanicDetected(se2)
-		c := Check{ID: "T1.probe." + strings.Join(p, "_"), Kind: "panic_probe", Command: bin + " " + strings.Join(p, " "), ExitCode: code, StdoutSHA: rustutil.SHA256Hex(so2), StderrSHA: rustutil.SHA256Hex(se2), PanicDetect: panicked}
-		if !panicked && code != 101 {
-			c.Status = "pass"
-			c.Note = "graceful failure (no panic)"
-		} else {
-			c.Status = "fail"
-			c.Note = "PANIC or abort detected"
-		}
-		out = append(out, c)
-	}
 	return out
 }
 
@@ -151,74 +159,7 @@ func firstExample(dir string) string {
 	return ""
 }
 
-// T2：行為驗證（cargo test + 第一個 example）
-func checkBehavior(dir string) []Check {
-	var out []Check
-	so, se, code := run("cargo", "test", "--quiet")
-	c := Check{ID: "T2.test", Kind: "test", Command: "cargo test --quiet", ExitCode: code, StdoutSHA: rustutil.SHA256Hex(so), StderrSHA: rustutil.SHA256Hex(se)}
-	if code == 0 {
-		c.Status = "pass"
-		c.Note = "unit + integration + doc tests pass"
-	} else {
-		c.Status = "fail"
-	}
-	out = append(out, c)
-
-	if ex := firstExample(dir); ex != "" {
-		so, se, code = run("cargo", "run", "--quiet", "--example", ex)
-		c = Check{ID: "T2.example", Kind: "example", Command: "cargo run --quiet --example " + ex, ExitCode: code, StdoutSHA: rustutil.SHA256Hex(so), StderrSHA: rustutil.SHA256Hex(se), PanicDetect: rustutil.PanicDetected(se)}
-		if code == 0 && !rustutil.PanicDetected(se) {
-			c.Status = "pass"
-		} else {
-			c.Status = "fail"
-		}
-		out = append(out, c)
-	} else {
-		out = append(out, Check{ID: "T2.example", Kind: "example", Command: "(無 examples/ 目錄)", Status: "skip", Note: "no examples, skipped"})
-	}
-	return out
-}
-
-// T3：反欺騙 — 聲明 vs 真實介面的確定性比對
-func checkClaims(bin string, claims []Claim) []ClaimVerdict {
-	help, _, _ := run(bin, "--help")
-	subs := rustutil.Subcommands(help)
-	subSet := map[string]bool{}
-	for _, s := range subs {
-		subSet[s] = true
-	}
-	var verdicts []ClaimVerdict
-	for _, cl := range claims {
-		v := ClaimVerdict{ClaimID: cl.ID, Text: cl.Text}
-		switch {
-		case strings.HasPrefix(cl.Feature, "flag:"):
-			f := strings.TrimPrefix(cl.Feature, "flag:")
-			if strings.Contains(help, f) {
-				v.Verdict = "verified"
-				v.Evidence = "help 輸出含 " + f
-			} else {
-				v.Verdict = "contradicted"
-				v.Evidence = "help 輸出無 " + f
-			}
-		case strings.HasPrefix(cl.Feature, "subcommand:"):
-			s := strings.TrimPrefix(cl.Feature, "subcommand:")
-			if subSet[s] {
-				v.Verdict = "verified"
-				v.Evidence = "子命令存在: " + s
-			} else {
-				v.Verdict = "contradicted"
-				v.Evidence = "子命令不存在: " + s
-			}
-		default:
-			v.Verdict = "unverifiable"
-			v.Evidence = "未知 feature 型別"
-		}
-		verdicts = append(verdicts, v)
-	}
-	return verdicts
-}
-
-// ---------- 雜湊鏈 ----------
+// ---------- 雜湊鏈（收據級：每條 Check 的 JSON hash 串接，確定性） ----------
 
 func chainHash(checks []Check) string {
 	ids := make([]string, 0, len(checks))
@@ -243,36 +184,144 @@ func main() {
 	dir := flag.String("dir", ".", "Rust 專案目錄")
 	claimsPath := flag.String("claims", "", "代理聲明 JSON 路徑（可選）")
 	key := flag.String("key", "ykc-dev-key", "簽名密鑰")
+	timeout := flag.Duration("timeout", 30*time.Minute, "單條命令超時")
 	flag.Parse()
 
 	if abs, err := filepath.Abs(*dir); err == nil {
 		*dir = abs
 	}
-	workDir = *dir
+	runner = smoke.Runner{FailFast: false, DefaultTimeout: *timeout, MaxOutputBytes: 1 << 20}
+	specByID = map[string]smoke.CommandSpec{}
+	ctx := context.Background()
 
-	// 0. 建置
-	_, se, code := run("cargo", "build", "--quiet")
-	if code != 0 {
-		fmt.Printf("❌ cargo build 失敗 (exit=%d)\n%s\n", code, se)
+	// 0. 建置（fail-fast：編譯不過，後續全無意義）
+	buildSpec := smoke.CommandSpec{ID: "cargo-build", Class: domain.CommandClassBuild, Name: "cargo", Args: []string{"build", "--quiet"}, WorkDir: *dir}
+	buildRep, err := (smoke.Runner{FailFast: true, DefaultTimeout: *timeout, MaxOutputBytes: 1 << 20}).Run(ctx, []smoke.CommandSpec{buildSpec})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "smoke runner:", err)
+		os.Exit(1)
+	}
+	if br := buildRep.Results[0]; !br.Succeeded() {
+		fmt.Printf("❌ cargo build 失敗 (exit=%d)\n%s\n", br.ExitCode, br.StderrTail)
 		os.Exit(1)
 	}
 	name := rustutil.PackageName(*dir)
 	bin := filepath.Join(*dir, "target", "debug", name)
 
-	// 1. 收集檢查
+	// 1. T0 + T2（不依賴子命令枚舉的批次）
+	specsA := []smoke.CommandSpec{
+		{ID: "T0.version", Class: domain.CommandClassSmoke, Name: bin, Args: []string{"--version"}, WorkDir: *dir},
+		{ID: "T0.help", Class: domain.CommandClassSmoke, Name: bin, Args: []string{"--help"}, WorkDir: *dir},
+		{ID: "T2.test", Class: domain.CommandClassTest, Name: "cargo", Args: []string{"test", "--quiet"}, WorkDir: *dir},
+	}
+	if ex := firstExample(*dir); ex != "" {
+		specsA = append(specsA, smoke.CommandSpec{ID: "T2.example", Class: domain.CommandClassTest, Name: "cargo", Args: []string{"run", "--quiet", "--example", ex}, WorkDir: *dir})
+	}
+	runSpecs(ctx, specsA)
+
 	var checks []Check
 	checks = append(checks, checkSanity(bin)...)
-	checks = append(checks, checkContract(bin)...)
-	checks = append(checks, checkBehavior(*dir)...)
+	if res, ok := resultOf("T0.version"); ok {
+		checks = append(checks, resCheck("T0.version", "sanity", res,
+			func(r domain.CommandResult) bool { return r.ExitCode == 0 && !rustutil.PanicDetected(r.StderrTail) },
+			"", "exit≠0 或 panic"))
+	}
+	if res, ok := resultOf("T0.help"); ok {
+		checks = append(checks, resCheck("T0.help", "sanity", res,
+			func(r domain.CommandResult) bool { return r.ExitCode == 0 && !rustutil.PanicDetected(r.StderrTail) },
+			"", "exit≠0 或 panic"))
+	}
 
-	// 2. 反欺騙
+	// 2. T1：從 --help 枚舉子命令 → 第二批次（每個子命令 --help + panic 探測）
+	helpText := ""
+	if res, ok := resultOf("T0.help"); ok {
+		helpText = res.StdoutTail
+	}
+	subs := rustutil.Subcommands(helpText)
+	specsB := []smoke.CommandSpec{}
+	for _, sub := range subs {
+		specsB = append(specsB, smoke.CommandSpec{ID: "T1.sub." + sub, Class: domain.CommandClassSmoke, Name: bin, Args: []string{sub, "--help"}, WorkDir: *dir})
+	}
+	// panic 探測：未知旗標、第一個子命令缺必要參數 → 應「優雅失敗」(非 101 panic)
+	// 註：probe 對任何 CLI 通用——不存在/缺參一律應優雅退出，不 panic。
+	probes := [][]string{{"--zzz-not-a-real-flag"}}
+	if len(subs) > 0 {
+		probes = append(probes, []string{subs[0]})
+	}
+	for _, p := range probes {
+		specsB = append(specsB, smoke.CommandSpec{ID: "T1.probe." + strings.Join(p, "_"), Class: domain.CommandClassSmoke, Name: bin, Args: p, WorkDir: *dir})
+	}
+	if len(specsB) > 0 {
+		runSpecs(ctx, specsB)
+	}
+	for _, sub := range subs {
+		if res, ok := resultOf("T1.sub." + sub); ok {
+			checks = append(checks, resCheck("T1.sub."+sub, "contract", res,
+				func(r domain.CommandResult) bool { return r.ExitCode == 0 && !rustutil.PanicDetected(r.StderrTail) },
+				"", "PANIC or abort detected"))
+		}
+	}
+	for _, p := range probes {
+		id := "T1.probe." + strings.Join(p, "_")
+		if res, ok := resultOf(id); ok {
+			checks = append(checks, resCheck(id, "panic_probe", res,
+				func(r domain.CommandResult) bool { return !rustutil.PanicDetected(r.StderrTail) && r.ExitCode != 101 },
+				"graceful failure (no panic)", "PANIC or abort detected"))
+		}
+	}
+
+	// 3. T2 檢查（批次 A 的 cargo test / example）
+	if res, ok := resultOf("T2.test"); ok {
+		checks = append(checks, resCheck("T2.test", "test", res,
+			func(r domain.CommandResult) bool { return r.ExitCode == 0 },
+			"unit + integration + doc tests pass", ""))
+	}
+	if ex := firstExample(*dir); ex != "" {
+		if res, ok := resultOf("T2.example"); ok {
+			checks = append(checks, resCheck("T2.example", "example", res,
+				func(r domain.CommandResult) bool { return r.ExitCode == 0 && !rustutil.PanicDetected(r.StderrTail) },
+				"", ""))
+		}
+	} else {
+		checks = append(checks, Check{ID: "T2.example", Kind: "example", Command: "(無 examples/ 目錄)", Status: "skip", Note: "no examples, skipped"})
+	}
+
+	// 4. T3：反欺騙 — 聲明 vs 真實介面的確定性比對
 	var verdicts []ClaimVerdict
 	if *claimsPath != "" {
 		if b, err := os.ReadFile(*claimsPath); err == nil {
 			var doc ClaimsDoc
 			if json.Unmarshal(b, &doc) == nil {
-				verdicts = checkClaims(bin, doc.Claims)
-				for _, v := range verdicts {
+				subSet := map[string]bool{}
+				for _, s := range subs {
+					subSet[s] = true
+				}
+				for _, cl := range doc.Claims {
+					v := ClaimVerdict{ClaimID: cl.ID, Text: cl.Text}
+					switch {
+					case strings.HasPrefix(cl.Feature, "flag:"):
+						f := strings.TrimPrefix(cl.Feature, "flag:")
+						if strings.Contains(helpText, f) {
+							v.Verdict = "verified"
+							v.Evidence = "help 輸出含 " + f
+						} else {
+							v.Verdict = "contradicted"
+							v.Evidence = "help 輸出無 " + f
+						}
+					case strings.HasPrefix(cl.Feature, "subcommand:"):
+						s := strings.TrimPrefix(cl.Feature, "subcommand:")
+						if subSet[s] {
+							v.Verdict = "verified"
+							v.Evidence = "子命令存在: " + s
+						} else {
+							v.Verdict = "contradicted"
+							v.Evidence = "子命令不存在: " + s
+						}
+					default:
+						v.Verdict = "unverifiable"
+						v.Evidence = "未知 feature 型別"
+					}
+					verdicts = append(verdicts, v)
 					st := "fail"
 					if v.Verdict == "verified" {
 						st = "pass"
@@ -283,7 +332,7 @@ func main() {
 		}
 	}
 
-	// 3. 收據
+	// 5. 收據
 	overall := "pass"
 	for _, c := range checks {
 		if c.Status == "fail" {
@@ -306,7 +355,7 @@ func main() {
 	outPath := filepath.Join(*dir, "ykc-receipt.json")
 	_ = os.WriteFile(outPath, out, 0o644)
 
-	// 4. 人讀摘要
+	// 6. 人讀摘要
 	fmt.Println("=================================================")
 	fmt.Println("YKC Smoke Engine — 煙測收據")
 	fmt.Println("=================================================")
