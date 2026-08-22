@@ -11,7 +11,10 @@
 #   自動：裝環境 → 建二進制 → 起控制面板 → 開瀏覽器
 
 # 方式 B：命令行（原生，無需容器）
-make verify-all     # 一鍵跑全部功能實測
+make lint           # gofmt + vet + staticcheck -checks=all（合入前置）
+make verify-all     # lint 後一鍵跑全部功能實測
+make deps            # 建 T-19 L1 capability worker（工具安裝另用 make deps-setup）
+make structure       # 建 T-20 pure-Go Rust/Go grammar worker
 make panel          # 啟動 YKC Trust Console（控制 + 觀察台）
 make serve          # 啟動 ykc-serve 常駐進程（監看+聲明評估+面板合一）
 
@@ -24,8 +27,10 @@ make image && make up
 `make panel` 或雙擊啟動器後，瀏覽器開 <http://localhost:8080>：
 
 - **控制（人類觸發）**：選擇運行對象（專案）→ 煙測/除錯/閘門/護欄動作 → 開始/停止 → 實時日誌與狀態。
-- **觀察（唯讀）**：專案完整性、信任等級（T0–T3）、判決與證據、即時事實流（hash 串鏈）——全部直接讀自 `.ykc/ledger.jsonl`，不改寫。
-- **AI 看（機器可讀）**：`GET /api/state`、`GET /api/raw?project=<dir>`、`GET /api/projects`、`GET/POST /api/jobs`、`GET /healthz`。
+- **觀察（唯讀）**：專案完整性、信任等級（T0–T3）、判決與證據、即時事實流（hash 串鏈）——全部直接讀自 `.ykc/ledger.jsonl`，不改寫；專案卡另顯示 project 外的 **Head anchor**，可攔截截斷／末行重簽。
+- **知識庫（唯讀）**：直接在面板搜尋鎖版 Rust 錯誤碼、規則與文檔閉包；顯示 dataset/rustc metadata、繁中摘要與官方來源，不新增任何控制權。
+- **L1/L2（可選能力包）**：建置 `ykc-deps`／`ykc-structure` 後，面板可顯示依賴 block/warn 與 Rust/Go 結構觀察；核心只讀其已驗證、anchored 的事實，不會把工具鏈或 grammar 塞進 T0。
+- **AI 看（機器可讀）**：`GET /api/state`、`GET /api/raw?project=<dir>`、`GET /api/know/*`、`GET /api/projects`、`GET/POST /api/jobs`、`GET /healthz`。
 
 ### 面板安全邊界（2026-08 加固）
 
@@ -34,7 +39,22 @@ make image && make up
 - **任務 project 白名單**：`POST /api/jobs` 的 project 必須在已發現的 Cargo 專案內，任意路徑（如 `/etc`）一律 400 拒收——杜絕經面板在攻擊者目錄觸發 cargo（build.rs → 任意代碼執行）。
 - **claims 路徑約束**：guard-verify/guard-score 的 claims 檔必須在專案目錄或面板根內（防任意檔讀取）。
 - **請求體限長**（1MB，`MaxBytesReader`）。
-- 觀察端（`/api/state` 等）唯讀、無需 token，可安全供 AI agent 拉取。
+- 觀察端（`/api/state`、`/api/know/*` 等）唯讀、無需 token，可安全供 AI agent 拉取。
+
+### 帳本 Head anchor（T-24）
+
+`.ykc/ledger.jsonl` 的 hash chain 會在每次成功 append 後，把最新 `(seq, head)` 寫到
+**專案外**的 `$YKC_HOME/anchors/<ledger-id>.json`；該 anchor 由 `$YKC_HOME/anchor.key`
+（0600）作 HMAC 簽章。因此僅取得專案目錄權限的攻擊者不能靠「截斷到合法前綴」或
+「重簽最後一行」躲過驗證。`ykc-judge -verify` 與 Trust Console 會顯示 anchor 狀態。
+
+可選 remote witness（預設不需要網路）：
+
+```bash
+export YKC_ANCHOR_WITNESS_URL='https://witness.example/ykc/anchor'
+export YKC_ANCHOR_WITNESS_VERIFY=true       # GET 對賬
+# export YKC_ANCHOR_WITNESS_REQUIRED=true    # witness 不可用時讓 Append 回報失敗
+```
 
 ## ykc serve — 常駐進程（YKC_14）
 
@@ -47,6 +67,31 @@ make image && make up
 - 四個 CLI 全部保留（git 閘門、MCP、一次性除錯）；ykc-guard 的 MCP 維持獨立 stdio 進程。
 - 帳本單一寫者紀律：serve 與 judge 子行程共用 `.ykc/ledger.jsonl`，衝突時 serve 以指數退避重試。
 
+## T-19 / T-20 Capability Packs（L1/L2 可選）
+
+為保持 `ykc` T0 核心細小，cargo-audit/cargo-deny、RustSec DB 與 Tree-sitter grammar 不會連結進
+預設核心。它們以獨立 worker + SHA-verified manifest 組合；**只有 `ykc-cap` / Core 可將 worker
+輸出寫進 EventStore 與 anchored ledger**。
+
+```bash
+# L1：先安裝固定 cargo 工具，再建 worker；scan 預設 report-first + offline
+make deps-setup
+make deps
+./bin/ykc-deps scan -dir /path/to/rust-project
+./bin/ykc-deps init-policy -o /path/to/rust-project/.ykc/deps-policy.toml
+
+# L2：只嵌 Rust + Go grammar subset（不是 206 grammar 全包）
+make structure
+./bin/ykc-structure scan -dir /path/to/project
+
+# 建 development pack、驗證 SHA、由 Core 側運行 worker
+make pack-deps pack-structure
+./bin/ykc-cap verify -manifest packs/structure-rustgo/0.1.0/<os-arch>/manifest.json
+```
+
+`make thin-core-test` 會保證 T0 `ykc` 不連結 gotreesitter；`make structure-size` 鎖定 Rust+Go
+worker 的 25 MiB 預算。詳見 `YKC_20_能力包解耦與組合架構.md` 與 `YKC_21_T19T20能力包MVP執行報告.md`。
+
 ## 文件索引
 
 | 文件 | 內容 |
@@ -54,6 +99,11 @@ make image && make up
 | **`YKC_14_常駐進程與宣告式護欄報告.md`** | **ykc serve 合併 + 護欄 datalog 化設計、驗收與紀律** |
 | **`YKC_15_知識庫與代理上下文引擎方案.md`** | **嵌入式唯讀知識庫：518 錯誤碼（例子+正解）、54 規則抽象、官方教學文檔、精準檢索/依賴項圖/上下文緩存/原子化** |
 | **`YKC_16_全代碼健檢修復與後續開發規劃.md`** | **全代碼健檢（staticcheck/vet/race 零告警）、錯漏債重死修復清單、後續 roadmap** |
+| **`YKC_17_知識庫鎖版與代理可追溯開發執行報告.md`** | **KB v2 鎖版／import、judge 知識 provenance、MCP KB 工具、lint/CI 閘門與後續排程** |
+| **`YKC_18_帳本錨定與知識面可重放擴展報告.md`** | **T-24 Head anchor／remote witness、KB manifest/replay/diff、tier-1 繁中卡、面板知識面與跨程序 cache** |
+| **`YKC_19_T19_L1依賴對齊與T20_L2結構統計實作規劃.md`** | **Cargo audit/deny、pure-Go Tree-sitter、政策與 grammar admission 設計** |
+| **`YKC_20_能力包解耦與組合架構.md`** | **Core + capability pack + verified JSONL composition、thin/secure/full profiles** |
+| **`YKC_21_T19T20能力包MVP執行報告.md`** | **T-19/T-20 MVP、pack manifest、實際 cargo tool/grammar admission 與驗收** |
 | **`YKC_00_構圖與路線圖.md`** | **總體構圖 + 里程碑 + 進度追蹤表（進度參照物）** |
 | **`YKC_01_容器化方案分析.md`** | Docker 類替代品深度分析（Podman/gVisor/Firecracker/Nix…）與建議 |
 | `YKC_YieldKeyCode_深度分析報告.md` | 技術五層、依賴清單、整體評分（v1.0） |
@@ -81,7 +131,7 @@ make image && make up
 ├── YKC_07_新增功能技術債審計與優化報告.md
 ├── YKC_08_eventstore_ledger橋接設計與實作.md
 ├── YKC_09_panel工作視覺與審計健康優化報告.md
-├── cmd/                           ← 八個命令（單一 module，共用 internal/）
+├── cmd/                           ← 十二個命令（Core + 可選 L1/L2 capability worker，共用 internal/）
 │   ├── ykc-smoke/main.go          ← 煙測引擎 ✅
 │   ├── ykc-atom/main.go           ← 原子監控 + 動態護欄 enforcement CLI ✅
 │   ├── ykc-precompile/             ← 沙盒 rustc/cargo 預編譯 ✅
@@ -99,9 +149,12 @@ make image && make up
 │   ├── ykc-lsp/main.go            ← LSP 客戶端 ✅
 │   ├── ykc-panel/main.go          ← Trust Console 薄殼（實作在 internal/panel）✅
 │   ├── ykc-serve/main.go          ← 常駐進程（監看+聲明評估+面板合一；internal/serve）✅
-│   └── ykc-know/main.go           ← 嵌入式唯讀知識庫 CLI（錯誤碼/規則/教學文檔檢索）✅
+│   ├── ykc-know/main.go           ← 嵌入式唯讀知識庫 CLI（錯誤碼/規則/教學文檔檢索）✅
+│   ├── ykc-cap/main.go            ← Capability manifest 驗證／Core-side JSONL 組合 ✅
+│   ├── ykc-deps/main.go           ← T-19 L1 依賴事實 worker（可選 pack）🟨
+│   └── ykc-structure/main.go      ← T-20 pure-Go Rust/Go AST worker（可選 pack）🟨
 ├── internal/                      ← 共享包（去重後唯一實作）
-│   ├── ledger/ledger.go           ← 事實帳本（judge/guard 共用，消除 drift）
+│   ├── ledger/                    ← 事實帳本 + project 外 HMAC head anchor（judge/guard 共用）
 │   ├── atomicfile/                 ← 原子寫入 primitives
 │   ├── eventstore/                 ← immutable per-event JSON store
 │   ├── eventledger/                ← eventstore → ledger hash-chain bridge
@@ -111,15 +164,19 @@ make image && make up
 │   ├── smoke/                      ← reusable smoke runner
 │   ├── watch/                       ← 事件監看（inotify/poll + 去抖 + 過濾）
 │   ├── datalog/                     ← 迷你 Datalog 引擎（分層否定；護欄規則用）
+│   ├── capability/                  ← Pack manifest + bounded local JSONL protocol
+│   ├── deps/                        ← T-19 Cargo metadata/audit/deny normalizer（worker side）
+│   ├── structure/                   ← T-20 pure-Go Rust/Go AST facts（worker side）
 │   ├── panel/                       ← Trust Console 唯一實作（ykc-panel 與 ykc-serve 共用）
 │   └── serve/                       ← 常駐進程核心（事件循環/claims/auto-judge）
 │   ├── sandbox/                    ← gVisor/bwrap/native execution abstraction
 │   ├── precompile/                 ← cargo check / rustc metadata pipeline
 │   ├── kb/                         ← 嵌入式唯讀知識庫 + 代理上下文引擎（YKC_15）
-│   │   ├── store.go                ← 內容定址唯讀 Store + blob 建庫/開檔（sha256 防竄改）
+│   │   ├── store.go / manifest.go  ← 內容定址 Store、blob v2、release manifest/replay
+│   │   ├── diff.go / zh.go          ← 原子／Refs diff、tier-1 繁中摘要層
 │   │   ├── index.go / token.go     ← 倒排索引 + BM25 + char-shingle 模糊檢索
 │   │   ├── graph.go                ← 依賴項圖（展開/反向/SCC）
-│   │   ├── cache.go                ← 代理上下文緩存（LRU）
+│   │   ├── cache.go / persistent.go ← 記憶體 LRU + 可選私有跨程序 context cache
 │   │   ├── context.go              ← Retrieve 管線（檢索→展開→預算截斷→渲染）
 │   │   └── data/*.json.gz          ← 518 錯誤碼 + 54 規則 + 官方教學文檔（go:embed）
 │   └── rustutil/rustutil.go       ← 執行/解析/簽名/雜湊通用工具
@@ -129,6 +186,7 @@ make image && make up
 ├── demo-rust-cli/                 ← 健康示範專案（clap CLI，煙測用）
 ├── demo-broken-cli/               ← 有錯專案（除錯閉環用）
 ├── demo-semantic-cli/             ← 語意錯誤專案（E0425，剩餘錯誤路徑用）
+├── docs/rust_terms_zh_hant.md     ← tier-1 繁中卡術語表與翻譯紀律
 ├── claims.json                    ← 代理謊報聲明樣本（煙測反欺騙比對用）
 ├── demo-agent-honest.json         ← 誠實代理聲明（T-14/T-15 用）
 ├── demo-agent-lying.json          ← 撒謊代理聲明（T-14/T-15 用）
@@ -166,18 +224,35 @@ make borrow-test  # Go 接線層測試（拓撲/規則卡/17 範例 golden）
 
 把代理最需要的 Rust 知識做成**零依賴、內容定址、唯讀**的知識面（683 原子）：
 
-- **資料**：rustc 官方**全部 518 條錯誤碼**（含錯誤範例 + 正解）、**54 條規則抽象**（17 領域）、**官方教學文檔**（19 部 / 91 章）——以 `go:embed` 編入二進制，離線可用。
+- **資料**：rustc 官方**全部 518 條錯誤碼**（含錯誤範例 + 正解）、**54 條規則抽象**（17 領域）、**官方教學文檔**（19 部 / 91 章）——以 `go:embed` 編入二進制，離線可用；另有 **tier-1 60 張錯誤卡繁中摘要**，英文官方原文保留。
 - **精準檢索**：精確碼短路 → BM25（程式碼也參與檢索）→ char-shingle 模糊（拼錯可召回）→ 領域加權；全決定論。
-- **代理優化**：`Retrieve()` = 檢索 → 依賴項圖展開（答案+規則+出處閉包）→ 預算截斷 → 可貼入提示的 Markdown；LRU 上下文緩存以「查詢指紋+資料版本」為鍵。
+- **代理優化**：`Retrieve()` = 檢索 → 依賴項圖展開（答案+規則+出處閉包）→ 預算截斷 → 可貼入提示的 Markdown；LRU 上下文緩存以「查詢指紋+資料版本」為鍵，亦可選用私有跨程序 disk cache。
+- **可重放 release**：`import` 同時產出 manifest（來源 URL/ETag/SHA、dataset/blob hash）；`replay` 逐項核對、`diff` 顯示原子與 Refs 漂移。
 - **唯讀資料庫**：`ykc-know build` 產出單一 blob（sha256 防竄改），開檔即驗；HTTP 端點全 GET。
-- 已掛入 `ykc serve`（`/api/know/*`，唯讀無 token）與獨立 `ykc-know serve`（`/api/kb/*`）。
+- 已掛入 `ykc-panel`／`ykc serve`（`/api/know/*`，唯讀無 token）與獨立 `ykc-know serve`（`/api/kb/*`）。
 
 ```bash
-make know-test    # 11 項驗收測試
+make know-test    # KB 鎖版／manifest／diff／翻譯／cache 驗收測試
 make know         # 建 ykc-know + stats
 ./bin/ykc-know search "cannot borrow as mutable"   # 精準檢索
 ./bin/ykc-know graph E0382 -depth 2                # 依賴項圖展開
-./bin/ykc-know build -o bin/kb.ykc                 # 建唯讀 blob 資料庫
+./bin/ykc-know build -o bin/kb.ykc                 # 由內嵌鎖版種子建唯讀 blob
+./bin/ykc-know import "$(rustc --version)" -o bin/kb.ykc # 產生 blob + .manifest.json
+./bin/ykc-know replay bin/kb.ykc.manifest.json -o bin/kb-replay.ykc # 可重放驗證
+./bin/ykc-know diff bin/kb.ykc bin/kb-replay.ykc   # release／知識圖差異
+./bin/ykc-know open bin/kb.ykc stats               # 顯示 rustc／翻譯／來源 metadata
+```
+
+`import` 是顯式的離線建庫動作：blob v2 會把 rustc 版本、翻譯層版本、官方 error-index URL 與
+來源 SHA-256 寫進**校驗過的標頭**，並產出可重放 manifest；可用 `ykc-judge -kb bin/kb.ykc`
+讓除錯閉環把實際命中的錯誤碼、原子 ID 與上下文 hash 追加為 `kb.analysis` 帳本事實。MCP 另提供
+`ykc.kb_search`／`ykc.kb_explain`，讓外部代理取得同一份可追溯知識面。
+
+若需跨程序快取（預設關閉，避免未經同意落盤代理查詢），顯式設定：
+
+```bash
+install -d -m 700 "$HOME/.ykc/kb-context-cache"
+export YKC_KB_CACHE_DIR="$HOME/.ykc/kb-context-cache"
 ```
 
 ## 執行架構（「任何裝置可運行」四層）

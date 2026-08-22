@@ -13,12 +13,16 @@
 //	ykc-know graph E0382 -depth 2          # 依賴項圖展開（代理用）
 //	ykc-know book                          # 官方教學文檔目錄
 //	ykc-know codes                         # 全部錯誤碼
-//	ykc-know build -o kb.ykc               # 建單一唯讀 blob 資料庫
+//	ykc-know build -o kb.ykc               # 由內嵌、鎖定的種子建單一唯讀 blob
+//	ykc-know import "$(rustc --version)" -o kb.ykc # 抽取對應版本官方錯誤索引、blob + manifest
+//	ykc-know replay kb.ykc.manifest.json -o replay.ykc # 重抓來源並逐項可重放驗證
+//	ykc-know diff old.ykc new.ykc           # 原子／metadata 差異（release 審計）
 //	ykc-know open kb.ykc search "..."      # 對 blob 做唯讀查詢
 //	ykc-know serve -addr 127.0.0.1 -port 8090   # 唯讀 HTTP API
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -47,6 +51,12 @@ func main() {
 		err = dispatch(st, cmd, rest)
 	case "build":
 		err = cmdBuild(rest)
+	case "import":
+		err = cmdImport(rest)
+	case "replay":
+		err = cmdReplay(rest)
+	case "diff":
+		err = cmdDiff(rest)
 	case "open":
 		if len(rest) < 2 {
 			fmt.Fprintln(os.Stderr, "用法: ykc-know open <blob> <subcommand> [args]")
@@ -206,14 +216,32 @@ func dispatch(st *kb.Store, cmd string, args []string) error {
 		return nil
 	case "stats":
 		cs := st.CacheStats()
+		meta := st.Metadata()
+		rustcVersion := meta.RustcVersion
+		if rustcVersion == "" {
+			rustcVersion = "unknown (legacy v1 blob; please re-import)"
+		}
 		fmt.Printf("version   = %s\n", st.Version())
 		fmt.Printf("source    = %s\n", st.Source())
+		fmt.Printf("rustc     = %s\n", rustcVersion)
+		if meta.ErrorIndexURL != "" {
+			fmt.Printf("index URL = %s\n", meta.ErrorIndexURL)
+		}
+		if meta.ErrorIndexSHA256 != "" {
+			fmt.Printf("index sha = %s\n", meta.ErrorIndexSHA256)
+		}
+		if meta.TranslationVersion != "" {
+			fmt.Printf("zh-Hant   = %s (%d translated error cards)\n", meta.TranslationVersion, st.TranslatedErrorCount())
+		}
 		fmt.Printf("atoms     = %d\n", st.Count())
 		for _, k := range []kb.Kind{kb.KindError, kb.KindRule, kb.KindBook, kb.KindPart, kb.KindTOC} {
 			fmt.Printf("  %-10s = %d\n", k, len(st.AtomsByKind(k)))
 		}
 		fmt.Printf("domains   = %d (%s)\n", len(st.Domains()), strings.Join(st.Domains(), ", "))
 		fmt.Printf("cache     = hits %d / misses %d (entries %d)\n", cs.Hits, cs.Misses, cs.Entries)
+		if cs.Persistent.Enabled {
+			fmt.Printf("disk cache= hits %d / misses %d / writes %d / errors %d (%s)\n", cs.Persistent.Hits, cs.Persistent.Misses, cs.Persistent.Writes, cs.Persistent.Errors, cs.Persistent.Dir)
+		}
 		fmt.Printf("cycle SCC = %d（相關概念互引，屬預期）\n", len(st.Cycles()))
 		return nil
 	}
@@ -257,7 +285,92 @@ func cmdBuild(args []string) error {
 		return err
 	}
 	fi, _ := os.Stat(*out)
-	fmt.Printf("已建庫：%s（%.1f KB）\n", *out, float64(fi.Size())/1024)
+	fmt.Printf("已建庫：%s（%.1f KB；rustc=%s）\n", *out, float64(fi.Size())/1024, kb.EmbeddedRustcVersion())
+	return nil
+}
+
+// cmdImport 以指定 rustc 版本的官方 error_codes/print.html 重建可追溯 blob。
+// 版本參數可直接傳 `rustc --version` 的完整輸出，例如：
+// ykc-know import "$(rustc --version)" -o bin/kb.ykc
+func cmdImport(args []string) error {
+	fs := flag.NewFlagSet("import", flag.ExitOnError)
+	out := fs.String("o", "kb.ykc", "輸出路徑")
+	manifestPath := fs.String("manifest", "", "release manifest 輸出路徑（預設 <blob>.manifest.json）")
+	indexURL := fs.String("url", "", "error_codes/print.html URL（預設官方對應版本）")
+	fs.Parse(reorderArgs(args, boolFlags))
+	if fs.NArg() < 1 {
+		return fmt.Errorf("用法: ykc-know import <rustc版本|`rustc --version`輸出> [-o kb.ykc -manifest kb.ykc.manifest.json]")
+	}
+	result, err := kb.ImportErrorIndex(context.Background(), kb.ImportOptions{
+		RustcVersion:  strings.Join(fs.Args(), " "),
+		ErrorIndexURL: *indexURL,
+	})
+	if err != nil {
+		return err
+	}
+	manifest, err := result.SaveWithManifest(*out, *manifestPath)
+	if err != nil {
+		return err
+	}
+	fi, err := os.Stat(*out)
+	if err != nil {
+		return err
+	}
+	meta := result.Metadata()
+	if *manifestPath == "" {
+		*manifestPath = *out + ".manifest.json"
+	}
+	fmt.Printf("已匯入 rustc %s：%d 條錯誤碼、%d 原子 → %s（%.1f KB）\n", result.Metadata().RustcVersion, result.ErrorCount(), result.Count(), *out, float64(fi.Size())/1024)
+	fmt.Printf("來源：%s\n內容 SHA-256：%s\nETag：%s\n", meta.ErrorIndexURL, meta.ErrorIndexSHA256, result.SourceETag())
+	fmt.Printf("manifest：%s（dataset=%s，blob SHA-256=%s）\n", *manifestPath, manifest.DatasetVersion, manifest.BlobSHA256)
+	return nil
+}
+
+func cmdReplay(args []string) error {
+	fs := flag.NewFlagSet("replay", flag.ExitOnError)
+	out := fs.String("o", "", "重建 blob 輸出路徑（必填）")
+	outManifest := fs.String("manifest", "", "重建後 manifest 輸出路徑（預設 <blob>.manifest.json）")
+	fs.Parse(reorderArgs(args, boolFlags))
+	if fs.NArg() != 1 || *out == "" {
+		return fmt.Errorf("用法: ykc-know replay <manifest.json> -o <replayed.ykc>")
+	}
+	manifest, err := kb.ReadImportManifest(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	result, err := kb.ReplayImport(context.Background(), manifest, nil)
+	if err != nil {
+		return err
+	}
+	actual, err := result.SaveWithManifest(*out, *outManifest)
+	if err != nil {
+		return err
+	}
+	if *outManifest == "" {
+		*outManifest = *out + ".manifest.json"
+	}
+	fmt.Printf("✅ manifest 可重放：%s → %s\n", fs.Arg(0), *out)
+	fmt.Printf("dataset=%s · blob SHA-256=%s · manifest=%s\n", actual.DatasetVersion, actual.BlobSHA256, *outManifest)
+	return nil
+}
+
+func cmdDiff(args []string) error {
+	fs := flag.NewFlagSet("diff", flag.ExitOnError)
+	asJSON := fs.Bool("json", false, "輸出完整 JSON")
+	limit := fs.Int("limit", 200, "Markdown 每類最多列數；0=不截斷")
+	fs.Parse(reorderArgs(args, boolFlags))
+	if fs.NArg() != 2 {
+		return fmt.Errorf("用法: ykc-know diff <base.ykc> <target.ykc> [-json -limit 200]")
+	}
+	report, err := kb.DiffFiles(fs.Arg(0), fs.Arg(1))
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		writeJSON(report)
+		return nil
+	}
+	fmt.Print(kb.RenderDiffMarkdown(report, *limit))
 	return nil
 }
 
@@ -265,14 +378,23 @@ func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1", "綁定位址")
 	port := fs.Int("port", 8090, "監聽埠")
+	blob := fs.String("blob", "", "已校驗 KB blob 路徑（預設內嵌鎖版資料）")
 	fs.Parse(reorderArgs(args, boolFlags))
 
-	st, err := kb.Open()
+	var (
+		st  *kb.Store
+		err error
+	)
+	if *blob == "" {
+		st, err = kb.Open()
+	} else {
+		st, err = kb.OpenFile(*blob)
+	}
 	if err != nil {
 		return err
 	}
 	listen := net.JoinHostPort(*addr, fmt.Sprintf("%d", *port))
-	log.Printf("ykc-know 唯讀知識庫 API listening on %s（version=%s, atoms=%d）", listen, st.Version(), st.Count())
+	log.Printf("ykc-know 唯讀知識庫 API listening on %s（version=%s, rustc=%s, atoms=%d）", listen, st.Version(), st.RustcVersion(), st.Count())
 	return http.ListenAndServe(listen, kb.Handler(st))
 }
 
@@ -297,8 +419,11 @@ Commands:
   book [id]               官方教學文檔目錄 / 章節
   codes                   全部錯誤碼（518 條）
   stats                   統計與緩存狀態
-  build -o kb.ykc         建單一唯讀 blob 資料庫
+  build -o kb.ykc         由內嵌、鎖定種子建單一唯讀 blob
+  import <rustc版本> [...] 抽取官方 error index，輸出 blob + 可重放 manifest
+  replay <manifest> -o X  重抓來源、核對 SHA/ETag/原子/blob 後重建 X
+  diff <base> <target>    比較兩 blob 的 metadata、原子內容及 graph refs
   open <blob> <cmd> [...] 對 blob 做唯讀查詢（同上子命令）
-  serve [-addr -port]     唯讀 HTTP API
+  serve [-addr -port -blob] 唯讀 HTTP API（可提供已校驗鎖版 blob）
 `)
 }

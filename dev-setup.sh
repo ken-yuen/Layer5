@@ -6,12 +6,15 @@
 #   YKC_HOME=/opt/ykc bash dev-setup.sh   # 自訂位置
 #
 # 行為：
-#   - 偵測系統已裝的 go / cargo，有則直接沿用，無則下載到 $YKC_HOME
-#   - rust-analyzer 元件（供 LSP 客戶端測試）自動補裝
+#   - 優先沿用系統 Go；Rust 則固定安裝/使用 $YKC_HOME 的鎖定版本
+#   - staticcheck 與 rust-analyzer（版本 + SHA-256）自動補裝，供品質／LSP 驗證
 #   - 冪等：可重複執行，不會重複下載
 set -e
 
 GO_VER="1.27.0"
+RUST_VER="1.98.0"
+RA_VER="2026-08-17.4"
+STATICCHECK_VER="v0.8.1"
 YKC_HOME="${YKC_HOME:-$HOME/.ykc}"
 mkdir -p "$YKC_HOME"
 
@@ -46,48 +49,102 @@ else
   export PATH="$YKC_HOME/go/bin:$PATH"
 fi
 
-# ---------- Rust ----------
+# ---------- Go lint 工具 ----------
+# staticcheck 不進 YKC 二進制的執行期依賴圖，但它是 make lint / verify-all 的
+# 強制品質閘門。固定版本讓本機與 CI 得到同一套診斷規則。
+STATICCHECK_BIN="$YKC_HOME/bin/staticcheck"
+if [ -x "$STATICCHECK_BIN" ] && "$STATICCHECK_BIN" -version 2>/dev/null | grep -q "(${STATICCHECK_VER#v})"; then
+  echo "✅ staticcheck：$($STATICCHECK_BIN -version)"
+else
+  echo "── 安裝 staticcheck $STATICCHECK_VER → $STATICCHECK_BIN ──"
+  mkdir -p "$YKC_HOME/bin"
+  GOBIN="$YKC_HOME/bin" go install "honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VER}"
+fi
+
+# ---------- Rust（鎖定 toolchain） ----------
+# YKC 會自行維護 $YKC_HOME 下的 rustup/cargo，避免全域 stable 在日後升版後令
+# judge、KB error index 與 CI 產生不同診斷。
 export RUSTUP_HOME="$YKC_HOME/rustup"
 export CARGO_HOME="$YKC_HOME/cargo"
-if ! command -v cargo >/dev/null 2>&1 && [ ! -x "$CARGO_HOME/bin/cargo" ]; then
-  echo "── 安裝 rustup（minimal）→ $YKC_HOME ──"
+if [ ! -x "$CARGO_HOME/bin/cargo" ]; then
+  echo "── 安裝 rustup（minimal，rustc $RUST_VER）→ $YKC_HOME ──"
   curl -sSf https://sh.rustup.rs -o "$YKC_HOME/rustup-init.sh"
-  sh "$YKC_HOME/rustup-init.sh" -y --profile minimal --default-toolchain stable
+  sh "$YKC_HOME/rustup-init.sh" -y --profile minimal --default-toolchain "$RUST_VER"
   rm -f "$YKC_HOME/rustup-init.sh"
 else
-  echo "✅ 偵測到 cargo：$(command -v cargo || echo "$CARGO_HOME/bin/cargo")"
+  echo "✅ 偵測到 YKC cargo：$CARGO_HOME/bin/cargo"
 fi
 export PATH="$CARGO_HOME/bin:$PATH"
+if ! rustup run "$RUST_VER" rustc --version >/dev/null 2>&1; then
+  echo "── 補裝鎖定 rustc $RUST_VER → $YKC_HOME ──"
+  rustup toolchain install "$RUST_VER" --profile minimal
+fi
+rustup default "$RUST_VER" >/dev/null
+echo "✅ rustc：$(rustc --version)"
 
-# rust-analyzer（官方已不再隨 rustup 分發，改從 GitHub releases 下載）
-# 僅供 `make lsp` 展示用；下載失敗不影響其他功能。
-# 注意：rustup 1.98 可能殘留一個「壞 proxy」（能 command -v 但執行報 Unknown binary），
-#       因此以「能真正執行 --version」為準，否則下載官方二進制覆蓋。
-if rust-analyzer --version >/dev/null 2>&1; then
-  echo "✅ rust-analyzer：$(rust-analyzer --version 2>/dev/null)"
-else
-  RA_TARGET=""
-  case "$OS/$GO_ARCH" in
-    Linux/amd64) RA_TARGET="x86_64-unknown-linux-gnu" ;;
-    Linux/arm64) RA_TARGET="aarch64-unknown-linux-gnu" ;;
-    Darwin/amd64) RA_TARGET="x86_64-apple-darwin" ;;
-    Darwin/arm64) RA_TARGET="aarch64-apple-darwin" ;;
-  esac
-  if [ -n "$RA_TARGET" ]; then
-    mkdir -p "$YKC_HOME/bin"
-    if curl -sL "https://github.com/rust-lang/rust-analyzer/releases/latest/download/rust-analyzer-${RA_TARGET}.gz" -o "$YKC_HOME/ra.gz" \
-       && gunzip -c "$YKC_HOME/ra.gz" > "$YKC_HOME/bin/rust-analyzer" \
-       && chmod +x "$YKC_HOME/bin/rust-analyzer" \
-       && [ -s "$YKC_HOME/bin/rust-analyzer" ]; then
-      rm -f "$YKC_HOME/ra.gz"
-      echo "✅ rust-analyzer 已下載 → $YKC_HOME/bin"
-    else
-      rm -f "$YKC_HOME/ra.gz" "$YKC_HOME/bin/rust-analyzer"
-      echo "⚠️ rust-analyzer 下載失敗（僅影響 make lsp；可稍後手動安裝）"
+# ---------- rust-analyzer（鎖定版本 + SHA-256） ----------
+# rust-analyzer 已不隨 rustup 分發。它只供 make lsp 展示用，但仍須鎖定，否則
+# 同一份 LSP 診斷測試會隨 GitHub latest 漂移。version marker 令 setup 可冪等。
+RA_TARGET=""
+RA_SHA256=""
+case "$OS/$GO_ARCH" in
+  Linux/amd64)
+    RA_TARGET="x86_64-unknown-linux-gnu"
+    RA_SHA256="a559eaa29920e4c12718fba101f2055f1da0ad8bc458ef9dc1a670778cc66901"
+    ;;
+  Linux/arm64)
+    RA_TARGET="aarch64-unknown-linux-gnu"
+    RA_SHA256="941ad31c4256eec3c8457257b0fcfb696d2b4f80c0e5a996f7375a92130c2447"
+    ;;
+  Darwin/amd64)
+    RA_TARGET="x86_64-apple-darwin"
+    RA_SHA256="134a7d305991de776864e43d1e6c291f60fa2888d4b9b7749864c562c5dc28b7"
+    ;;
+  Darwin/arm64)
+    RA_TARGET="aarch64-apple-darwin"
+    RA_SHA256="ece932daf2f077be87bf745d2eb0a62cbc550f4b1e2e31ca76dfafdd0cc599b3"
+    ;;
+esac
+RA_BIN="$YKC_HOME/bin/rust-analyzer"
+RA_MARKER="$YKC_HOME/bin/rust-analyzer.version"
+if [ -n "$RA_TARGET" ] && [ -x "$RA_BIN" ] \
+   && [ "$(cat "$RA_MARKER" 2>/dev/null || true)" = "$RA_VER" ] \
+   && "$RA_BIN" --version >/dev/null 2>&1; then
+  echo "✅ rust-analyzer ($RA_VER)：$($RA_BIN --version 2>/dev/null)"
+elif [ -n "$RA_TARGET" ]; then
+  mkdir -p "$YKC_HOME/bin"
+  RA_ARCHIVE="$YKC_HOME/ra-${RA_VER}.gz"
+  RA_TMP="$RA_BIN.tmp"
+  RA_OK=false
+  echo "── 下載 rust-analyzer $RA_VER ($RA_TARGET) → $RA_BIN ──"
+  if curl -fsSL "https://github.com/rust-lang/rust-analyzer/releases/download/${RA_VER}/rust-analyzer-${RA_TARGET}.gz" -o "$RA_ARCHIVE"; then
+    RA_HASH_OK=false
+    if command -v sha256sum >/dev/null 2>&1; then
+      if printf '%s  %s\n' "$RA_SHA256" "$RA_ARCHIVE" | sha256sum -c -; then
+        RA_HASH_OK=true
+      fi
+    elif printf '%s  %s\n' "$RA_SHA256" "$RA_ARCHIVE" | shasum -a 256 -c -; then
+      RA_HASH_OK=true
     fi
-  else
-    echo "⚠️ 無此平台 rust-analyzer 建置（僅影響 make lsp）"
+    if [ "$RA_HASH_OK" = true ] \
+       && gunzip -c "$RA_ARCHIVE" > "$RA_TMP" \
+       && chmod +x "$RA_TMP" \
+       && [ -s "$RA_TMP" ] \
+       && "$RA_TMP" --version >/dev/null 2>&1; then
+      mv -f "$RA_TMP" "$RA_BIN"
+      printf '%s\n' "$RA_VER" > "$RA_MARKER"
+      RA_OK=true
+    fi
   fi
+  rm -f "$RA_ARCHIVE" "$RA_TMP"
+  if [ "$RA_OK" = true ]; then
+    echo "✅ rust-analyzer 已下載並校驗（$RA_VER）→ $YKC_HOME/bin"
+  else
+    rm -f "$RA_BIN" "$RA_MARKER"
+    echo "⚠️ rust-analyzer $RA_VER 下載或 SHA 校驗失敗（僅影響 make lsp；可稍後重跑 setup）"
+  fi
+else
+  echo "⚠️ 無此平台 rust-analyzer 鎖定建置（僅影響 make lsp）"
 fi
 
 echo ""

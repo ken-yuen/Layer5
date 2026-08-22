@@ -13,7 +13,7 @@ import (
 // 不產生、不改寫任何資料，可安全供代理無 token 存取。
 //
 //	GET /healthz              → ok
-//	GET /api/kb/state         → 資料版本、原子統計、緩存統計
+//	GET /api/kb/state         → 資料版本、rustc 來源版本、原子統計、緩存統計
 //	GET /api/kb/search?q=&k=&expand=&budget=&format=json|md
 //	GET /api/kb/code/{CODE}   → 錯誤碼卡（E0382 等）
 //	GET /api/kb/rule/{ID}     → 規則（OWN-01 等）
@@ -38,15 +38,21 @@ func Handler(s *Store) http.Handler {
 			kinds[string(a.Kind)]++
 		}
 		cs := s.CacheStats()
+		meta := s.Metadata()
 		writeJSON(w, map[string]any{
-			"version":    s.Version(),
-			"source":     s.Source(),
-			"atoms":      s.Count(),
-			"kinds":      kinds,
-			"domains":    s.Domains(),
-			"cache":      cs,
-			"cycle_sccs": len(s.Cycles()),
-			"read_only":  true,
+			"version":                s.Version(),
+			"source":                 s.Source(),
+			"rustc_version":          meta.RustcVersion,
+			"error_index_url":        meta.ErrorIndexURL,
+			"error_index_sha256":     meta.ErrorIndexSHA256,
+			"translation_version":    meta.TranslationVersion,
+			"translated_error_cards": s.TranslatedErrorCount(),
+			"atoms":                  s.Count(),
+			"kinds":                  kinds,
+			"domains":                s.Domains(),
+			"cache":                  cs,
+			"cycle_sccs":             len(s.Cycles()),
+			"read_only":              true,
 		})
 	})
 

@@ -1,5 +1,6 @@
 # ── 建置產物 ──
 /bin/
+/packs/
 *.exe
 /tmp/
 

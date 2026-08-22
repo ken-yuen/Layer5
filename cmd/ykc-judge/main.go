@@ -37,6 +37,7 @@ type Receipt struct {
 func main() {
 	dir := flag.String("dir", ".", "Rust 專案目錄")
 	key := flag.String("key", "ykc-dev-key", "簽名密鑰")
+	kbPath := flag.String("kb", "", "唯讀知識庫 blob 路徑（預設內嵌鎖版資料）")
 	gate := flag.Bool("gate", false, "閘門模式：只驗證、不修復")
 	verify := flag.Bool("verify", false, "驗證帳本完整性後退出")
 	flag.Parse()
@@ -55,7 +56,7 @@ func main() {
 	case *gate:
 		runGate(*dir)
 	default:
-		runJudge(*dir, *key)
+		runJudge(*dir, *key, *kbPath)
 	}
 }
 
@@ -66,8 +67,9 @@ func appendFact(led *ledger.Ledger, typ, actor string, payload any) {
 	}
 }
 
-// runJudge：除錯閉環。
-func runJudge(dir, key string) {
+// runJudge：除錯閉環。kbPath 若指定，會以已校驗 blob 取代預設內嵌資料，並把
+// 每個已使用錯誤碼上下文的資料集版本與原子 ID 寫入事實帳本。
+func runJudge(dir, key, kbPath string) {
 	ledgerDir := filepath.Join(dir, ".ykc")
 	_ = os.MkdirAll(ledgerDir, 0o755)
 	// S4 修復：寫入前校驗全鏈（OpenVerified）——不在偽鏈/斷鏈之上繼續追加；
@@ -121,6 +123,21 @@ func runJudge(dir, key string) {
 		}
 	}
 
+	// KB 是解釋/修復上下文，不是裁判。只有 rustc 真實剩餘診斷才會觸發精確碼
+	// 查詢；每個命中的原子閉包與資料集版本上帳，供之後重放「代理靠哪份知識修」。
+	var knowledge judgeKnowledge
+	if len(remaining) > 0 {
+		st, kerr := openJudgeKnowledge(kbPath)
+		if kerr != nil {
+			fmt.Fprintf(os.Stderr, "⚠️ 知識庫不可用（不影響 rustc 判定）: %v\n", kerr)
+		} else {
+			knowledge = buildJudgeKnowledge(st, remaining)
+			if len(knowledge.analysis.Usages) > 0 {
+				appendFact(led, "kb.analysis", "ykc-judge", knowledge.analysis)
+			}
+		}
+	}
+
 	overall := "pass"
 	if len(remaining) > 0 {
 		overall = "fail"
@@ -158,6 +175,9 @@ func runJudge(dir, key string) {
 		fmt.Println("--- ⚠️ 剩餘語意錯誤（需 LLM/人類介入，附官方說明）---")
 		for _, e := range remaining {
 			fmt.Printf("   %s %s (%s:%d)\n", e.Code, e.Message, filepath.Base(e.File), e.Line)
+			if summary := knowledge.summaryFor(e.Code); summary != "" {
+				fmt.Printf("      ↳ %s（已寫入 kb.analysis）\n", summary)
+			}
 			if ex := explain(dir, e.Code); ex != "" {
 				fmt.Printf("      ↳ 官方說明: %s\n", ex)
 			}
@@ -206,15 +226,20 @@ func runGate(dir string) {
 // runVerify：驗證帳本完整性（反竄改抽查）。
 func runVerify(dir string) {
 	path := filepath.Join(dir, ".ykc", "ledger.jsonl")
-	ok, head, err := ledger.VerifyChain(path)
+	ok, head, anchor, err := ledger.VerifyAnchored(path)
 	if err != nil {
-		fmt.Println("❌ 讀取帳本失敗:", err)
+		fmt.Printf("🛑 帳本／head anchor 驗證失敗（%s）: %v\n", anchor.State, err)
 		os.Exit(1)
 	}
-	if ok {
-		fmt.Printf("✅ 帳本完整，鏈頭 = %s\n", head)
-	} else {
-		fmt.Println("🛑 帳本遭竄改！hash 鏈斷裂。")
+	if !ok {
+		fmt.Printf("🛑 帳本遭竄改！hash 鏈或 head anchor 不完整（%s）。\n", anchor.State)
 		os.Exit(1)
 	}
+	if anchor.State == "anchored" {
+		fmt.Printf("✅ 帳本完整且已獨立錨定，鏈頭 = %s（seq=%d）\n", head, anchor.AnchorSeq)
+		return
+	}
+	// 既有帳本在升級後、尚未下一次寫入前沒有 anchor；明確告警而非假稱已受
+	// 截斷防護。下一次成功 Append 會自動建立 anchor。
+	fmt.Printf("⚠️ 帳本 hash 鏈完整，但尚未建立 head anchor；下一次 YKC 寫入會 bootstrap（鏈頭 = %s）。\n", head)
 }

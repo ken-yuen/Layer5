@@ -1,8 +1,9 @@
 # YKC_15 知識庫與代理上下文引擎方案
 
-> 狀態：已實作（`internal/kb` + `cmd/ykc-know`，11 項測試全綠）
-> 日期：2026-08-22
+> 狀態：已實作並持續擴展（`internal/kb` + `cmd/ykc-know`，26 項 KB 測試全綠）
+> 日期：2026-08-22（2026-08-23 由 YKC_17／YKC_18 擴展）
 > 對齊：`YKC_00_構圖與路線圖.md` 的 T 系列路線；延續決策編號 D22（「判定權不轉移」）。
+> 執行更新：版本鎖定、manifest/replay/diff、tier-1 繁中摘要、面板知識面與可選跨程序 cache 已落地；詳見 `YKC_18_帳本錨定與知識面可重放擴展報告.md`。
 
 ---
 
@@ -24,7 +25,7 @@
 | **唯讀** | Store 建構後不可變：無任何寫入 API；HTTP 端點全 GET；開檔即驗 hash；`state` 回報 `read_only: true` | `internal/kb/store.go`、`http.go` |
 | **AI agent（生成式代理）優化** | `Retrieve()` 一鍵產出「最小高訊號上下文」：命中排序 → 依賴展開 → 預算截斷 → 可貼入提示的 Markdown | `internal/kb/context.go` |
 | **精準檢索能力** | 四層：①精確鍵短路（錯誤碼/規則 id/章節 id）②倒排索引 + BM25 ③char-shingle 模糊相似（拼寫誤差/程式碼片段）④領域詞彙加權 + 常見錯誤碼優先級；全決定論 | `internal/kb/index.go`、`token.go`、`search.go` |
-| **代理上下文緩存** | LRU（條目 + 位元組雙上限），鍵 = 查詢指紋 + 資料版本 + 參數；同查詢必命中、資料版本變更自然失效 | `internal/kb/cache.go` |
+| **代理上下文緩存** | 記憶體 LRU（條目 + 位元組雙上限）+ 可選私有跨程序 cache；鍵 = 查詢指紋 + 資料版本 + 參數，跨版本自然失效 | `internal/kb/cache.go`、`persistent.go` |
 | **上下文原子化** | 每條知識 = 一個自足「原子」（Atom）：ID = 內容 sha256；518 錯誤碼卡 + 54 規則 + 19 部 + 91 章 + 1 目錄 = **683 原子** | `internal/kb/types.go`、`seed.go` |
 | **依賴項圖（代理用）** | 原子間 Refs 邊（錯誤↔規則↔章節↔部）+ 反向索引；BFS 展開上下文、`graph`/`/api/kb/graph` 出節點+邊、SCC 環診斷 | `internal/kb/graph.go` |
 | **rust 官方教學文檔** | 嵌入 The Rust Programming Language（mdBook）結構：19 部 / 91 章 + 各章摘要 + 小節標題 | `data/book.json.gz` |
@@ -76,16 +77,18 @@
 1. **內嵌（預設）**：`Open()` 由 `go:embed` 種子資料建構，靜態二進制離線可用。
 2. **磁碟 blob**：`Build()`/`Save(path)` 產出單一不可變檔案；`OpenFile(path)` 唯讀開啟。
 
-### 3.2 blob 格式（版本 1）
+### 3.2 blob 格式（目前版本 2；2026-08-23 鎖版）
 
 ```
-┌────────────┬─────────┬──────────┬─────────────────────────────┬────────────┐
-│ magic      │ version │ count    │ payload                     │ sha256     │
-│ "YKCKB\0"  │ u32=1   │ u64      │ [u32 len][atom JSON] …      │ 32 bytes   │
-└────────────┴─────────┴──────────┴─────────────────────────────┴────────────┘
+┌────────────┬─────────┬──────────────┬───────────────────┬──────────┬──────────────────────┬────────────┐
+│ magic      │ version │ metadata_len │ metadata JSON     │ count    │ payload              │ sha256     │
+│ "YKCKB\0"  │ u32=2   │ u32          │ rustc/source/SHA  │ u64      │ [u32 len][atom] …    │ 32 bytes   │
+└────────────┴─────────┴──────────────┴───────────────────┴──────────┴──────────────────────┴────────────┘
 ```
 
-- 開檔依序校驗 magic、版本、`sha256(payload)`；任一不符即報錯（**防竄改**，與 YKC hash 串鏈同源）。
+- metadata 至少可帶 `rustc_version`、`error_index_url`、`error_index_sha256`、`translation_version`；`ykc-know import` 將其與對應官方 `print.html` 一起寫入。
+- 開檔依序校驗 magic、格式版本、**`sha256(metadata_len + metadata + count + payload)`**；metadata 與內容均不可被單獨篡改。
+- v1（只校驗 payload、沒有來源 metadata）仍可唯讀開啟，但會明確回報來源版本未知，應重新 import。
 - 內容定址：`ID = "kb-" + hex(sha256(原子內容))[:8]`；同內容同 ID、異內容異 ID（Merkle-DAG 式）。
 - 寫入只發生在建庫時（離線）；執行期**無寫路徑**。
 
@@ -103,7 +106,7 @@
 
 | 種類 | Code | 主要欄位 | 數量 |
 |---|---|---|---|
-| `error` | E0382 | Title / Body(說明) / Err(錯誤範例) / Fix(正解) / Source | 518 |
+| `error` | E0382 | Title / Body(英文官方說明) / ZH(可選繁中摘要) / Err(錯誤範例) / Fix(正解) / Source | 518（tier-1 60 張已有 ZH） |
 | `rule` | BRW-01 | Title / ZH(中文陳述) / Why / Fixes(修法菜單) / Refs | 54 |
 | `book` | what-is-ownership-1 | Title / Body(摘要) / Sections(小節) / Refs→part | 91 |
 | `book-part` | understanding-ownership | Title | 19 |
@@ -163,8 +166,9 @@ Retrieve(q, opts{ K, ExpandDepth, BudgetBytes })
 - LRU，條目（256）與位元組（8 MiB）雙上限，`container/list` 實作、mutex 保護。
 - **鍵 = `version + "\0" + query + "\0" + K + ExpandDepth + BudgetBytes`**：
   同查詢同參數必命中；**資料版本（全部原子 ID 的 sha256）含於鍵中**——升級知識庫後舊鍵自然失效，不會拿到過期上下文。
-- 統計經 `/api/kb/state` 暴露（hits/misses/entries/bytes），供觀測。
-- 決定論 + 快取 = 代理重複提問零成本（`TestContextCacheAndBudget`）。
+- 統計經 `/api/kb/state` 暴露（memory hits/misses/entries/bytes + 可選 persistent stats），供觀測。
+- **跨程序層（2026-08-23）**：只在顯式設置 `YKC_KB_CACHE_DIR` 時啟用；檔案 0600、目錄 0700、key 再以 SHA-256 命名、最多 256 檔／8 MiB。資料版本、key digest、atom IDs 任一不符或損毀即安全 miss 並重建，從不把 cache 當權威資料。
+- 決定論 + 快取 = 代理重複提問零成本（`TestContextCacheAndBudget`、`TestPersistentCacheSharesOnlyVersionMatchedContexts`）。
 
 ---
 
@@ -216,9 +220,12 @@ ykc-know search "borrow after move" [-k 8 -expand 2 -budget 12000 -json]
 ykc-know rule BRW-01 / rules -domain borrowing
 ykc-know graph E0382 -depth 2       # 依賴項圖展開
 ykc-know book [id] / codes / stats
-ykc-know build -o kb.ykc            # 建唯讀 blob
+ykc-know build -o kb.ykc            # 由內嵌鎖版種子建唯讀 v2 blob
+ykc-know import "$(rustc --version)" -o kb.ykc # 取官方 error index、寫 blob + release manifest
+ykc-know replay kb.ykc.manifest.json -o replay.ykc # 重抓來源並逐項可重放驗證
+ykc-know diff old.ykc new.ykc [-json] # 比較 metadata、內容原子與 Refs
 ykc-know open kb.ykc search "..."   # 對 blob 唯讀查詢
-ykc-know serve -addr -port          # 唯讀 HTTP API
+ykc-know serve -addr -port -blob kb.ykc # 以已校驗鎖版 blob 提供唯讀 HTTP API
 ```
 
 ### 10.2 HTTP API（唯讀，無 token）
@@ -226,7 +233,7 @@ ykc-know serve -addr -port          # 唯讀 HTTP API
 已掛入 **ykc-serve**（`/api/know/*`，與 `/api/state` 同屬「觀察」面）與 **ykc-know serve**（`/api/kb/*`）：
 
 ```
-GET /api/know/state           資料版本、683 原子統計、緩存統計、read_only
+GET /api/know/state           資料版本、rustc／來源 SHA／translation metadata、683 原子統計、memory/persistent 緩存統計、read_only
 GET /api/know/search?q=&k=&expand=&budget=&format=json|md
 GET /api/know/code/{E0382}    錯誤碼卡
 GET /api/know/rule/{OWN-01}   規則
@@ -240,7 +247,7 @@ GET /api/know/codes           全部錯誤碼（一行標題）
 
 ## 11. 驗收
 
-`go test ./internal/kb/`（11 項，全綠）：
+`go test ./internal/kb/`（26 項測試函式，全綠；含 2026-08-23 鎖版、manifest/diff、繁中與 persistent cache 增量）：
 
 | 測試 | 驗證點 |
 |---|---|
@@ -255,8 +262,23 @@ GET /api/know/codes           全部錯誤碼（一行標題）
 | `TestRenderMarkdown` | 渲染含 ` ```rust ` 範例區塊 |
 | `TestBlobRoundTripAndTamper` | blob 版本一致；竄改開檔失敗 |
 | `TestContentAddressing` | 同內容同 ID、異內容異 ID |
+| `TestGraphExpandPreservesRootOrder` | 多根輸入順序保留與決定論 |
+| `TestImportErrorIndexWritesVersionedBlob` | 官方 print.html／受管鏡像抽取、v2 blob 與 source metadata |
+| `TestImportRejectsInvalidVersionAndURL` | 版本、URL 輸入邊界 |
+| `TestImportedBlobProtectsMetadata` | 篡改 v2 metadata 即 checksum 失敗 |
+| `TestEmbeddedMetadataMatchesRustToolchainLock` | 內嵌 KB rustc metadata 與部署工具鏈鎖一致 |
+| `TestBuildBlobCarriesEmbeddedMetadata` | `Build()` 的 v2 header round-trip |
+| `TestLegacyV1BlobRemainsReadableButHasNoVersionProvenance` | 舊 blob 只讀相容與未知來源提示 |
+| `TestHTTPStateReportsVersionedDatasetMetadata` | `/api/kb/state` 暴露 rustc／來源 metadata |
+| `TestImportManifestRoundTripAndReplay` | URL/ETag/SHA/原子/blob manifest 與 byte-identical replay |
+| `TestDiffStoresIncludesContentAndReferenceChanges` | 內容 ID 與 Refs 漂移分別可見、排序決定論 |
+| `TestDiffFilesRoundTrip` | 已校驗 blob 的檔案 diff 路徑 |
+| `TestTier1ErrorCardsHaveTraditionalChineseSummaries` | tier-1 60/60 繁中摘要 coverage |
+| `TestErrorMarkdownRendersTraditionalChineseSeparately` | ZH 顯示且英文官方原文不被覆寫 |
+| `TestPersistentCacheSharesOnlyVersionMatchedContexts` | 跨 Store 命中、私有檔權限、版本不符安全 miss |
+| `TestPersistentCacheDisabledWithoutExplicitDirectory` | 未明確設定時不落盤 |
 
-`go test ./...` 全綠；`go vet` 通過。Makefile 新增 `know / know-test / know-build / know-serve`，
+`go test ./...` 全綠；`go vet` 通過。Makefile 新增 `know / know-test / know-build / know-import / know-serve`，
 `binaries` 納入 `ykc-know`。
 
 ---
@@ -268,16 +290,21 @@ GET /api/know/codes           全部錯誤碼（一行標題）
 - **D25**：邊的語意定為「依賴（前置知識）」，反向用 Backrefs 補「被依賴」；相關性環（互引）視為正常，以 SCC 診斷而非報錯。
 - **D26**：KB 端點一律唯讀、無 token（與 `/api/state` 同級）；控制面（claims/jobs）維持既有 token 邊界不變。
 - **D27**：知識庫輸出是**解釋**，判定仍以 rustc 為準（延續 D22「判定權不轉移」）。
+- **D28**（2026-08-23）：KB blob metadata（rustc／來源 URL／來源 SHA）必須與 payload 一起被校驗；v1 只讀相容但不偽稱有來源 provenance。
+- **D29**（2026-08-23）：judge 寫 `kb.analysis`，記下實際錯誤碼→資料集／原子／上下文 hash，不把「代理說看過文件」當證據。
+- **D30**（2026-08-23）：staticcheck 固定為開發／CI 工具，`make lint` 缺工具即失敗；不把它納入 YKC 二進制執行期供應鏈。
 
 ---
 
 ## 13. 路線圖（後續）
 
-1. **T-KB-2 增量**：`ykc-know import` 從 rustc 版本號抽取對應錯誤索引（鎖版，與 `deploy/rust-toolchain.toml` 的 rustc 1.98 對齊），並把「版本」寫入 blob 頭供可追溯。
-2. **T-KB-3 代理回填**：judge 修復閉環把「命中錯誤碼 → 使用的 KB 上下文版本」寫入事實帳本（`borrow.analysis` 同款），讓「代理靠哪份知識修好」可審計。
-3. **T-KB-4 MCP 工具**：`ykc.kb_search` / `ykc.kb_explain` 兩支 stdio MCP 工具（仿既有 `ykc.borrow_*`），讓外部代理直接呼叫。
-4. **T-KB-5 中文版**：錯誤碼卡與教學文檔的中文陳述回填（規則已中文），供中文代理。
-5. **T-KB-6 向量檢索（可選）**：需要語意級召回時，以可插拔介面接入本地 embedding，維持零依賴預設不變。
+1. **T-KB-2 增量 — ✅ 2026-08-23**：`ykc-know import` 從 rustc 版本號／`rustc --version` 抽取對應官方 `print.html`；blob v2 把 rustc、來源 URL 與來源 SHA-256 放入已校驗標頭，且內嵌 metadata 以測試對齊 `deploy/rust-toolchain.toml`。
+2. **T-KB-3 代理回填 — ✅ 2026-08-23**：judge 的 `-kb` 可使用已校驗 blob，將「錯誤碼 → KB dataset/rustc/source/atom IDs/context hash」以 `kb.analysis` 追加到事實帳本。
+3. **T-KB-4 MCP 工具 — ✅ 2026-08-23**：`ykc.kb_search` / `ykc.kb_explain` 已加入 stdio MCP，並有 query、展開深度和上下文預算界限。
+4. **T-KB-5 中文版 MVP — ✅ 2026-08-23**：tier-1 60 張高頻錯誤卡已有獨立 `ZH` 繁中摘要、translation version、60/60 coverage test 與英文原文共存；518 卡／91 章全文回填仍按術語表與人工抽樣分批推進。
+5. **T-KB-6 manifest + `ykc-know diff` — ✅ 2026-08-23**：`import` 產出 URL/ETag/SHA/dataset/blob manifest，`replay` byte-identical 核對；`diff` 比較 metadata、內容定址原子與 Refs。
+6. **T-KB-7 跨程序 cache — ✅ 2026-08-23**：以 `YKC_KB_CACHE_DIR` 顯式 opt-in，資料版本／atom ID 驗證、私有權限與 corruption-as-miss；不改 blob。
+7. **T-KB-8 向量檢索（可選）**：需要語意級召回時，以可插拔介面接入本地 embedding，維持零依賴預設不變；必須先有 BM25/shingle 失敗集與離線評測基線。
 
 ---
 
@@ -290,16 +317,21 @@ internal/kb/
   token.go     Tokenize（駝峰/底線/錯誤碼）+ char-shingle
   index.go     倒排索引 + BM25
   graph.go     依賴項圖（Deps/Dependents/展開/SCC）
-  cache.go     LRU 上下文緩存
-  store.go     Store（Open/Build/Save/OpenFile + 查詢）
+  cache.go / persistent.go  LRU + 可選私有跨程序 context cache
+  metadata.go  資料集 rustc／來源／SHA／translation metadata（blob v2 標頭）
+  import.go / manifest.go  官方 error-index 鎖版抽取器、release manifest/replay
+  diff.go      metadata、內容原子與 Refs 的決定論 diff
+  zh.go        tier-1 error card 繁中摘要層（英文來源不覆寫）
+  store.go     Store（Open/Build/Save/OpenFile + v1/v2 驗證 + 查詢）
   search.go    四層精準檢索 + 排序
   context.go   Retrieve 管線 + Markdown 渲染
   http.go      唯讀 HTTP API
-  kb_test.go   11 項驗收測試
+  *_test.go    26 項驗收（鎖版、manifest/diff、翻譯、persistent cache）
   data/        errcodes/book/rules/boost .json.gz（~151 KB）
-cmd/ykc-know/main.go   CLI（code/search/rule/graph/book/codes/stats/build/open/serve）
-Makefile      know / know-test / know-build / know-serve
-internal/serve/serve.go  /api/know/* 唯讀掛載
+cmd/ykc-know/main.go   CLI（code/search/rule/graph/book/codes/stats/build/import/replay/diff/open/serve）
+Makefile      know / know-test / know-build / know-import / know-replay / know-diff / know-serve
+internal/panel/knowledge.go  ykc-panel／ykc-serve 共用 /api/know/* 唯讀掛載
 docs/rust_error_codes.md      全部 518 條錯誤碼（例子 + 正解）參考檔
 docs/rust_rules_abstract.md   54 條規則抽象參考檔
+docs/rust_terms_zh_hant.md   tier-1 繁中摘要術語表／翻譯紀律
 ```

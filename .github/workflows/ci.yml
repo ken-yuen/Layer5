@@ -21,23 +21,29 @@ jobs:
         with:
           go-version: "1.27"
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install staticcheck (pinned)
+        run: |
+          mkdir -p "$RUNNER_TEMP/ykc-bin"
+          GOBIN="$RUNNER_TEMP/ykc-bin" go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+          echo "$RUNNER_TEMP/ykc-bin" >> "$GITHUB_PATH"
+
+      - name: Setup Rust (locked to deploy/rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@1.98.0
         with:
           components: rustfmt, clippy
 
-      - name: Install rust-analyzer (for LSP test)
+      - name: Install rust-analyzer (locked for LSP test)
         run: |
-          curl -sL "https://github.com/rust-lang/rust-analyzer/releases/latest/download/rust-analyzer-x86_64-unknown-linux-gnu.gz" \
-            | gunzip > /usr/local/bin/rust-analyzer
+          RA_VERSION=2026-08-17.4
+          RA_SHA256=a559eaa29920e4c12718fba101f2055f1da0ad8bc458ef9dc1a670778cc66901
+          curl -fsSL "https://github.com/rust-lang/rust-analyzer/releases/download/${RA_VERSION}/rust-analyzer-x86_64-unknown-linux-gnu.gz" -o /tmp/rust-analyzer.gz
+          printf '%s  %s\n' "$RA_SHA256" /tmp/rust-analyzer.gz | sha256sum -c -
+          gunzip -c /tmp/rust-analyzer.gz > /usr/local/bin/rust-analyzer
           chmod +x /usr/local/bin/rust-analyzer
           rust-analyzer --version
 
-      - name: gofmt check
-        run: test -z "$(gofmt -l cmd internal core)" || { echo "以下檔案未 gofmt："; gofmt -l cmd internal core; exit 1; }
-
-      - name: go vet
-        run: go vet ./...
+      - name: lint (gofmt + vet + staticcheck all)
+        run: make lint
 
       - name: go build
         run: go build ./...
@@ -82,6 +88,7 @@ jobs:
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-atom        ./cmd/ykc-atom
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-precompile  ./cmd/ykc-precompile
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-serve       ./cmd/ykc-serve
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-know        ./cmd/ykc-know
           # L5 引擎（ykc-judge/ykc-guard 的幾何解釋依賴; 執行檔旁 l5/chordlaw 自動探測）
           mkdir -p dist/ykc/l5
           cp -r l5/chordlaw dist/ykc/l5/

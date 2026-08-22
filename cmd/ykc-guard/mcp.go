@@ -8,12 +8,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"ykc/internal/borrow"
 	"ykc/internal/claimview"
+	"ykc/internal/kb"
 	"ykc/internal/rustutil"
 )
 
@@ -72,6 +75,105 @@ var tools = []map[string]any{
 			},
 		},
 	},
+	{
+		"name":        "ykc.kb_search",
+		"description": "查詢 YKC 內嵌、唯讀 Rust 知識庫，回傳可直接提供給代理的最小上下文（錯誤碼、規則、官方文檔閉包）。結果附資料集版本與 rustc 版本，可審計、可重放。",
+		"inputSchema": map[string]any{
+			"type":     "object",
+			"required": []string{"query"},
+			"properties": map[string]any{
+				"query":  map[string]any{"type": "string", "description": "錯誤訊息、Rust 程式片段或問題（最多 8 KiB）"},
+				"k":      map[string]any{"type": "integer", "description": "初始命中數，1–20（預設 8）"},
+				"expand": map[string]any{"type": "integer", "description": "知識圖展開深度，0–4（預設 2）"},
+				"budget": map[string]any{"type": "integer", "description": "上下文預算 bytes，512–32768（預設 12000）"},
+			},
+		},
+	},
+	{
+		"name":        "ykc.kb_explain",
+		"description": "精確取得一個 Rust 錯誤碼、YKC 規則 ID 或官方文檔章節的知識閉包，含內容定址原子 ID、來源與 rustc 版本。這是解釋工具，不取代 rustc 判定。",
+		"inputSchema": map[string]any{
+			"type":     "object",
+			"required": []string{"code"},
+			"properties": map[string]any{
+				"code":   map[string]any{"type": "string", "description": "E0382、BRW-01 或章節 ID"},
+				"expand": map[string]any{"type": "integer", "description": "知識圖展開深度，0–4（預設 2）"},
+				"budget": map[string]any{"type": "integer", "description": "上下文預算 bytes，512–32768（預設 12000）"},
+			},
+		},
+	},
+}
+
+var (
+	mcpKBOnce  sync.Once
+	mcpKBStore *kb.Store
+	mcpKBErr   error
+)
+
+// openMCPKnowledge 讓長駐 stdio MCP 進程只初始化一次唯讀 Store；Store 建成後
+// 僅查詢（快取自身有鎖），可安全供每個 tools/call 重用。
+func openMCPKnowledge() (*kb.Store, error) {
+	mcpKBOnce.Do(func() {
+		mcpKBStore, mcpKBErr = kb.Open()
+	})
+	return mcpKBStore, mcpKBErr
+}
+
+const (
+	maxMCPKBQueryBytes = 8 << 10
+	minMCPKBBudget     = 512
+	maxMCPKBBudget     = 32 << 10
+)
+
+func mcpStringArg(args map[string]any, key string) string {
+	v, _ := args[key].(string)
+	return strings.TrimSpace(v)
+}
+
+// mcpBoundedIntArg 接受 encoding/json 解出的 float64，以及直接單元測試常用的
+// int/json.Number；拒絕小數、字串和超出界限的值，避免代理用巨型檢索參數耗盡上下文。
+func mcpBoundedIntArg(args map[string]any, key string, def, min, max int) (int, error) {
+	v, ok := args[key]
+	if !ok || v == nil {
+		return def, nil
+	}
+	var n int64
+	switch x := v.(type) {
+	case int:
+		n = int64(x)
+	case int64:
+		n = x
+	case float64:
+		if math.IsNaN(x) || math.IsInf(x, 0) || math.Trunc(x) != x {
+			return 0, fmt.Errorf("%s 必須是整數", key)
+		}
+		// 先在 float 範圍內檢查，再轉 int64，避免惡意極大 JSON number 的
+		// 實作相依溢位轉換。
+		if x < float64(min) || x > float64(max) {
+			return 0, fmt.Errorf("%s 必須介於 %d 與 %d", key, min, max)
+		}
+		return int(x), nil
+	case json.Number:
+		parsed, err := x.Int64()
+		if err != nil {
+			return 0, fmt.Errorf("%s 必須是整數", key)
+		}
+		n = parsed
+	default:
+		return 0, fmt.Errorf("%s 必須是整數", key)
+	}
+	if n < int64(min) || n > int64(max) {
+		return 0, fmt.Errorf("%s 必須介於 %d 與 %d", key, min, max)
+	}
+	return int(n), nil
+}
+
+func mcpKBHeader(st *kb.Store) string {
+	rustc := st.RustcVersion()
+	if rustc == "" {
+		rustc = "legacy/unknown"
+	}
+	return fmt.Sprintf("> KB dataset=%s · rustc=%s · source=%s\n\n", st.Version(), rustc, st.Source())
 }
 
 func sendResult(id json.RawMessage, result any) {
@@ -129,6 +231,60 @@ func callTool(dir, name string, args map[string]any) map[string]any {
 		facts := readAll(dir)
 		lvl := TrustLevel(claimview.TrustLevel(facts, agent, int(T3)))
 		return toolResult(fmt.Sprintf("代理 %s 信任等級 = %s", agent, lvl), false)
+
+	case "ykc.kb_search":
+		query := mcpStringArg(args, "query")
+		if query == "" {
+			return toolResult("需要 query 參數", true)
+		}
+		if len(query) > maxMCPKBQueryBytes {
+			return toolResult(fmt.Sprintf("query 超過 %d bytes 上限", maxMCPKBQueryBytes), true)
+		}
+		k, err := mcpBoundedIntArg(args, "k", 8, 1, 20)
+		if err != nil {
+			return toolResult(err.Error(), true)
+		}
+		expand, err := mcpBoundedIntArg(args, "expand", 2, 0, 4)
+		if err != nil {
+			return toolResult(err.Error(), true)
+		}
+		budget, err := mcpBoundedIntArg(args, "budget", 12000, minMCPKBBudget, maxMCPKBBudget)
+		if err != nil {
+			return toolResult(err.Error(), true)
+		}
+		st, err := openMCPKnowledge()
+		if err != nil {
+			return toolResult("知識庫不可用: "+err.Error(), true)
+		}
+		bundle := st.Retrieve(query, kb.SearchOpts{K: k, ExpandDepth: expand, BudgetBytes: budget})
+		return toolResult(mcpKBHeader(st)+kb.RenderMarkdown(bundle), false)
+
+	case "ykc.kb_explain":
+		code := mcpStringArg(args, "code")
+		if code == "" {
+			return toolResult("需要 code 參數", true)
+		}
+		if len(code) > 256 {
+			return toolResult("code 超過 256 bytes 上限", true)
+		}
+		expand, err := mcpBoundedIntArg(args, "expand", 2, 0, 4)
+		if err != nil {
+			return toolResult(err.Error(), true)
+		}
+		budget, err := mcpBoundedIntArg(args, "budget", 12000, minMCPKBBudget, maxMCPKBBudget)
+		if err != nil {
+			return toolResult(err.Error(), true)
+		}
+		st, err := openMCPKnowledge()
+		if err != nil {
+			return toolResult("知識庫不可用: "+err.Error(), true)
+		}
+		atom, ok := st.ByCode(code)
+		if !ok {
+			return toolResult("找不到知識原子 "+code, true)
+		}
+		bundle := st.Retrieve(atom.Code, kb.SearchOpts{K: 1, ExpandDepth: expand, BudgetBytes: budget})
+		return toolResult(mcpKBHeader(st)+fmt.Sprintf("> 精確根原子=%s\n\n", atom.ID)+kb.RenderMarkdown(bundle), false)
 
 	case "ykc.borrow_rules":
 		code, _ := args["code"].(string)

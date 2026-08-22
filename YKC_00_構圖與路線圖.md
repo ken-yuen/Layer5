@@ -164,14 +164,19 @@
 | T-18a2 | L5 P2 增量（真實 Rust→.cl 驗證式歸約 + sN←file:line 錨定; L5 報告落盤 persist.go; panel 紅邊視圖+快取鍵; MCP 紅邊; release 補 L5 引擎; 第二輪審計 7 項修復; staticcheck 0 告警） | T-18a | ✅ | 2026-08-22 |
 | T-18a3 | L5 真實專案驗測（7 專案 ~20 萬行/10,255 fn 全掃描: 0 panic/0 不合法產物; 8 項邊角修復+5 條回歸; 真實形態注入 E2E; rustlings 語料; loop 複雜度防線 MaxLoopStmts。見 YKC_13） | T-18a2 | ✅ | 2026-08-22 |
 | T-18b | L5 官方事實路線（-Znll-facts→Go datalog; 以 T-18a golden 做 differential testing） | T-18a | ⬜ | |
-| T-19 | L1 依賴對齊（包 cargo-audit/deny） | — | ⬜ | |
-| T-20 | L2 結構統計（tree-sitter） | — | ⬜ | |
+| T-19 | L1 依賴對齊 MVP（`ykc-deps` capability worker：Cargo metadata graph、pinned cargo-audit 0.22.2、cargo-deny 0.20.2、report-first policy、artifact hash、anchored event/panel view；policy gate/serve watch 後續） | — | 🟨 | 2026-08-23 |
+| T-20 | L2 結構統計 MVP（`ykc-structure` capability worker：pure-Go gotreesitter v0.51.0、Rust+Go subset grammar、bounded AST facts、anchored event/panel view；per-file reuse/serve watch 後續） | — | 🟨 | 2026-08-23 |
 | T-21 | 企業版控制台 + K8s SaaS | P4 | ⬜ | |
 | T-22 | 修復與邊界加固（S1–S6、D1–D10、path traversal、MCP/claims 有界、CI/release 釘版） | — | ✅ | 2026-08-22 |
 | T-23 | bootstrap-go.sh 受限環境安裝路徑 | — | ✅ | 2026-08-22 |
-| T-24 | 帳本 head 錨定（截斷/末行重簽偵測） | T-22 | ⬜ | |
+| T-24 | 帳本 head 錨定（專案外 HMAC anchor；Open/bridge/panel anchor-aware；截斷／末行重簽／seq gap 偵測；可選 HTTP remote witness） | T-22 | ✅ | 2026-08-23 |
 | T-25 | ykc serve 常駐進程（合併 atom+judge+guard+panel 運行時：inotify/fsnotify 事件流 + 去抖 + file.change 帳本序列化 + /api/claims + /api/watch + /api/rules；ErrLocked 退避重試；SIGTERM 優雅退出） | T-11,T-17 | ✅ | 2026-08-22 |
 | T-26 | 護欄規則 datalog 化（internal/datalog 迷你引擎：分層否定+neq+安全檢查+確定性輸出；EvaluateClaim 遷移為規則即數據，policy_test 4 條原語義回歸全綠；-rules 附加集） | T-14 | ✅ | 2026-08-22 |
+| T-27 | KB 版本鎖定 + judge 可追溯閉環（`ykc-know import <rustc版本>` 從官方 print.html 建 v2 metadata/checksum blob；embedded metadata 對齊 rust-toolchain；judge `-kb` 將 code→dataset/rustc/atom IDs/context hash 寫 `kb.analysis`） | T-12,T-KB-2 | ✅ | 2026-08-23 |
+| T-28 | KB MCP + 品質閘門（`ykc.kb_search`/`ykc.kb_explain` 有界工具；`make lint`/`verify-all` 前置 staticcheck+vet；CI 鎖 staticcheck v0.8.1；release 納入 ykc-know） | T-17,T-27 | ✅ | 2026-08-23 |
+| T-29 | KB release manifest + replay + diff（來源 URL/ETag/SHA、dataset/blob 指紋；`ykc-know replay` byte-identical 驗證；內容／Refs 差異） | T-27 | ✅ | 2026-08-23 |
+| T-30 | 知識面體驗 MVP（tier-1 60 張繁中 error 摘要、Trust Console `/api/know` 搜尋、可選私有跨程序 context cache） | T-27,T-29 | ✅ | 2026-08-23 |
+| T-31 | Capability pack core（manifest SHA 驗證、local JSONL worker protocol、Core-only event/anchored-ledger composition、thin/pack size admission） | T-24 | ✅ | 2026-08-23 |
 
 ---
 
@@ -212,7 +217,22 @@
 | D20 | 受限環境安裝路徑 | go.dev 不可達環境（內網/受限 CI）的官方備援：`bootstrap-go.sh` 六級 bootstrap 鏈（gcc→1.4.3→…→1.27.0，實測 18 分鐘/2C3G），`make bootstrap-go` 一鍵。見 YKC_11 §1.2 |
 | D21 | 帳本頭錨定（殘留風險） | hash 鏈無外錨時「截斷/末行重簽」不可偵測（OpenVerified 偵測的是中間行竄改/插入）。P3 前以「panel 定期外發 chain head + 人工核對」過渡；P3 做 head 錨定（獨立儲存/遠端存證） |
 | D22 | L5 雙軌 | L5 採雙軌：**軌一（T-18a, 已落地）**= vendored ChordLaw 作「解釋層」——SVG 給人看、幾何給代理讀（文字拓撲+區間代數+衝突圖紅邊+幾何規則卡 E01–E10↔rustc）；判定權不轉移（一切輸出是 explanation, 判定以 rustc 為準）；解釋 sha256 上帳本（borrow.analysis）可審計；L5 是可選能力（無 python3 降級為純規則卡, 守 T0 承諾）。**軌二（T-18b）**= D2 原路線不變（-Znll-facts→Go datalog），以軌一 17 範例 golden + 26 oracle 作 differential testing 基準收斂。vendor 記錄見 l5/chordlaw/VENDOR.md |
+| D23 | KB 實作 | KB 採內容定址原子 + 倒排索引 + 圖 + LRU，全自研、零執行期第三方依賴；向量能力只能作可選外掛。 |
+| D24 | KB 模糊檢索 | 預設採 char-shingle 而非 embedding：可決定論、可重放、可審計；BM25/shingle 永遠保留為回退。 |
+| D25 | KB 圖語意 | 邊表示前置知識；反向邊補被依賴；相關性 SCC 是可診斷的正常概念環，展開一律決定論。 |
+| D26 | KB 讀取邊界 | KB HTTP 與 MCP 為唯讀解釋面；控制面 token 邊界不因知識查詢而放寬。 |
+| D27 | 知識不取代判定 | KB、MCP、L5 都是說明／修復上下文；rustc、測試與環境事實仍保留唯一判定權。 |
+| D28 | KB 來源鎖定 | rustc error index 的版本、官方 URL 與來源 SHA-256 是資料本體的一部分；寫入 checksum 覆蓋的 blob v2 metadata，不只寫 release note。 |
+| D29 | KB provenance | judge 對實際命中的錯誤碼記錄 dataset/rustc/source/atom IDs/context hash 至 `kb.analysis`，讓代理所用知識可重放對賬。 |
+| D30 | 品質閘門 | `gofmt`、`go vet`、`staticcheck -checks=all` 是 `make lint`／`verify-all`／CI 的失敗即停前置；lint 工具固定版本但不進執行期依賴圖。 |
+| D31 | Head anchor | hash chain 不等於 rollback 防護；每次 append 以 project 外、HMAC 簽章 anchor 記錄鏈頭，Open/bridge/panel 全部 fail closed 比對。 |
+| D32 | Remote witness | HTTP witness 是可選強化層，預設不令網路成為本機驗證單點；required 模式必須由操作者顯式選擇。 |
+| D33 | KB release 可重放 | KB release 必須記錄 URL、HTTP witness、來源 hash、原子圖版本和 blob hash；版本字串本身不足以審計。 |
+| D34 | 翻譯資料化 | 繁中摘要是帶版本、coverage test、內容定址的資料欄位，英文官方原文不可被 UI 或翻譯覆寫。 |
+| D35 | Persistent cache | 跨程序快取是非權威、明確 opt-in 的效能層；資料版本綁定、0600、原子寫入和 corruption-as-miss 是硬底線。 |
+| D36 | Capability packs | 不用 Go plugin；Core + 獨立 worker binary + SHA-verified manifest + local JSONL protocol。只有 Core 可將 worker facts 包裝並寫入 anchored ledger。 |
+| D37 | L1/L2 體積邊界 | cargo tools、RustSec DB、grammar blobs 均屬可選 pack；T0 ykc 不可連結 gotreesitter。Rust+Go grammar subset 必須有 binary size admission。 |
 
 ---
 
-*版次：v10.2（2026-08-22 L5 真實專案驗測：T-18a3 ✅ 7 專案 20 萬行掃描全綠；見 YKC_13）。*
+*版次：v10.5（2026-08-23：T-31 ✅；T-19/T-20 MVP 🟨；以 capability pack 解耦 L1 cargo facts 與 L2 pure-Go AST，並保持 T0 細小；見 YKC_21）。*

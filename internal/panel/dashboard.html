@@ -76,6 +76,16 @@ section{margin-bottom:22px}
 .card details.l5 summary{cursor:pointer;font-size:11px;color:var(--dim)}
 .card details.l5 pre{margin:6px 0 0;padding:8px;background:#0009;font-size:10px;line-height:1.5;overflow-x:auto;white-space:pre;max-height:340px;overflow-y:auto}
 
+/* ── knowledge surface（唯讀） ── */
+.kbmeta{color:var(--dim);font-size:10px;align-self:center;min-width:220px;word-break:break-all}
+.kbresults{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.kbcard{background:var(--panel);border:1px solid var(--line);border-left:2px solid var(--violet);padding:11px 12px}
+.kbcard h3{font-size:12px;color:var(--text);margin-bottom:4px}
+.kbcard .kbkind{color:var(--violet);font-size:10px;letter-spacing:.1em}
+.kbcard .kbzh{color:var(--cyan);font-size:11px;margin:5px 0}
+.kbcard .kbbody{color:var(--dim);font-size:10.5px;white-space:pre-wrap;word-break:break-word;max-height:132px;overflow:auto}
+.kbcard .kbfoot{margin-top:7px;color:var(--faint);font-size:10px;word-break:break-all}
+
 /* ── project cards ── */
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
 .card{background:var(--panel);border:1px solid var(--line);padding:13px 14px}
@@ -93,12 +103,12 @@ section{margin-bottom:22px}
 
 /* status colors */
 .st{font-weight:600}
-.st.PASS,.st.verified,.st.T3{color:var(--green)}
-.st.WARN,.st.T2{color:var(--amber)}
+.st.PASS,.st.verified,.st.T3,.st.anchored{color:var(--green)}
+.st.WARN,.st.T2,.st.unanchored{color:var(--amber)}
 .st.FAIL,.st.T1{color:var(--red)}
-.st.TAKEOVER,.st.T0,.st.tampered,.st.contradicted{color:var(--red)}
+.st.TAKEOVER,.st.T0,.st.tampered,.st.contradicted,.st.rollback,.st.mismatch,.st.invalid{color:var(--red)}
 .st.empty,.st.unverifiable{color:var(--faint)}
-.st.error{color:var(--violet)}
+.st.error,.st.chain_invalid{color:var(--violet)}
 
 /* ── verdicts / trust ── */
 .vlist{display:flex;flex-direction:column;gap:6px}
@@ -214,17 +224,29 @@ button.logbtn{color:var(--dim);font-size:11px;padding:2px 8px}
   </section>
 
   <section>
-    <div class="sec"><span class="no">02</span><h2>TRUST &amp; VERDICTS · 信任與判決</h2><div class="rule"></div></div>
+    <div class="sec"><span class="no">02</span><h2>KNOWLEDGE · 鎖版 Rust 知識面（唯讀）</h2><div class="rule"></div></div>
+    <div class="control">
+      <div class="crow">
+        <input id="kbquery" placeholder="查詢錯誤碼、訊息或 Rust 片段，例如：cannot borrow as mutable">
+        <button id="kbsearch" class="run">查詢 KB</button>
+        <span id="kbmeta" class="kbmeta">讀取資料集 metadata…</span>
+      </div>
+    </div>
+    <div id="kbresults" class="kbresults"><div class="empty-note">輸入問題後，面板會從鎖版知識庫擷取最小可審計上下文；這是唯讀解釋，不取代 rustc 判定。</div></div>
+  </section>
+
+  <section>
+    <div class="sec"><span class="no">03</span><h2>TRUST &amp; VERDICTS · 信任與判決</h2><div class="rule"></div></div>
     <div id="verdicts"></div>
   </section>
 
   <section>
-    <div class="sec"><span class="no">03</span><h2>LIVE FACT STREAM · 即時事實流</h2><div class="rule"></div></div>
+    <div class="sec"><span class="no">04</span><h2>LIVE FACT STREAM · 即時事實流</h2><div class="rule"></div></div>
     <div class="feed" id="feed"></div>
   </section>
 
   <footer>
-    <div class="api">機器可讀（供 AI agent / 外部系統）：<code>GET /api/state</code> · <code>GET /api/jobs</code> · <code>GET /api/raw?project=&lt;dir&gt;</code> · <code>GET /healthz</code></div>
+    <div class="api">機器可讀（供 AI agent / 外部系統）：<code>GET /api/state</code> · <code>GET /api/know/state</code> · <code>GET /api/know/search?q=…</code> · <code>GET /api/jobs</code> · <code>GET /api/raw?project=&lt;dir&gt;</code> · <code>GET /healthz</code></div>
     <div style="margin-top:6px">READ-ONLY OBSERVER — 本服務不產生、不改寫任何資料。每一條事實都可在專案 <code>.ykc/ledger.jsonl</code> 中逐條查證（hash 串鏈）。</div>
   </footer>
 </div>
@@ -240,6 +262,8 @@ const TRUST=["T0 全面接管","T1 加強驗證","T2 常態硬閘門","T3 高度
 const TRUST_CLS=["T0","T1","T2","T3"];
 const SEV=["無","誇大","隱瞞","欺騙","偽造"];
 const INTEG={"verified":"✅ 鏈完整","tampered":"🛑 鏈遭竄改","empty":"○ 無記錄","error":"✕ 讀取失敗"};
+const ANCHOR={"anchored":"🔒 已獨立錨定","unanchored":"⚠ 舊帳本待錨定","rollback":"🛑 回滾／截斷","mismatch":"🛑 鏈頭不一致","invalid":"🛑 錨定無效","chain_invalid":"✕ 鏈無效"};
+const WITNESS={"unconfigured":"未設定遠端見證","configured":"遠端見證已設定","verified":"遠端見證已核對","stale":"遠端見證稍舊","unavailable":"遠端見證不可用","mismatch":"遠端見證不一致"};
 
 function badge(overall){
   const m={PASS:["PASS","T3"],WARN:["WARN","T2"],FAIL:["FAIL","T1"],TAKEOVER:["TAKEOVER","T0"],"":["—",""]};
@@ -286,6 +310,51 @@ function render(s){
 function stat(k,v,cls){
   return `<div class="stat"><div class="k">${k}</div><div class="v ${cls==="bad"?"st T0":""}">${v}</div></div>`;
 }
+function anchorView(a){
+  a=a||{};
+  const state=a.state||"unanchored";
+  const witness=a.witness_state?`\nwitness=${WITNESS[a.witness_state]||a.witness_state} · seq=${a.witness_seq||0}`:"";
+  const tip=`anchor seq=${a.anchor_seq||0} · current seq=${a.current_seq||0}\nanchor=${a.anchor_head||"—"}\ncurrent=${a.current_head||"—"}${witness}`;
+  const label=(ANCHOR[state]||state)+(a.witness_state==="verified"?" · ☁ verified":"");
+  return `<span class="st ${esc(state)}" title="${esc(tip)}">${esc(label)}</span>`;
+}
+function clip(s,n){s=String(s||"");return s.length>n?s.slice(0,n)+"…":s;}
+async function loadKBState(){
+  const el=$("#kbmeta");
+  try{
+    const r=await fetch("/api/know/state",{cache:"no-store"});
+    if(!r.ok)throw new Error(await r.text());
+    const d=await r.json();
+    el.textContent=`dataset=${d.version||"—"} · rustc=${d.rustc_version||"legacy/unknown"} · atoms=${d.atoms||0}`;
+    el.title=`source=${d.source||"—"}\nindex=${d.error_index_url||"—"}\nsha=${d.error_index_sha256||"—"}`;
+  }catch(e){el.textContent="KB 暫不可用："+String(e).slice(0,100);}
+}
+function renderKB(bundle){
+  const el=$("#kbresults"), atoms=bundle.atoms||[];
+  if(!atoms.length){el.innerHTML=`<div class="empty-note">沒有命中。可嘗試錯誤碼（如 E0382）、英文錯誤文字或 Rust 關鍵字。</div>`;return;}
+  el.innerHTML=atoms.map(a=>{
+    const body=clip(a.body||a.why||"",1200);
+    const source=a.source&&/^https?:\/\//.test(a.source)?`<a href="${esc(a.source)}" target="_blank" rel="noreferrer">官方來源</a>`:`<span class="faint">無外部來源</span>`;
+    return `<article class="kbcard"><div class="kbkind">${esc(a.kind||"atom")} · ${esc(a.id||"—")}</div>
+      <h3>${esc(a.code||"—")} — ${esc(a.title||"未命名")}</h3>
+      ${a.zh?`<div class="kbzh">繁中：${esc(a.zh)}</div>`:""}
+      <div class="kbbody">${esc(body)}</div>
+      <div class="kbfoot">${source}</div></article>`;
+  }).join("");
+}
+async function searchKB(){
+  const q=$("#kbquery").value.trim();
+  if(!q){$("#kbquery").focus();return;}
+  const out=$("#kbresults");
+  out.innerHTML=`<div class="empty-note"><span class="spin"></span>正在查詢鎖版知識庫…</div>`;
+  try{
+    const u="/api/know/search?q="+encodeURIComponent(q)+"&k=6&expand=1&budget=12000";
+    const r=await fetch(u,{cache:"no-store"});
+    if(!r.ok)throw new Error(await r.text());
+    const b=await r.json();
+    renderKB(b);
+  }catch(e){out.innerHTML=`<div class="empty-note">KB 查詢失敗：${esc(String(e))}</div>`;}
+}
 
 function renderProjects(list){
   const el=$("#projects");
@@ -298,6 +367,7 @@ function renderProjects(list){
       ["事件/投影",`${p.event_count||0}/${p.projected_events||0}`],
       ["缺投影",(p.missing_projections||0)>0?`<span class="st T0">${p.missing_projections}</span>`:`<span class="st T3">0</span>`],
       ["鏈頭",`<span class="hash" title="${esc(p.chain_head)}">${sh(p.chain_head)}</span>`],
+      ["Head anchor",anchorView(p.anchor)],
       ["收據",p.receipt?badge(p.receipt.overall):`<span class="faint">—</span>`],
       ["最近活動",ts2(p.last_fact&&p.last_fact.ts)],
     ];
@@ -516,11 +586,15 @@ function renderJobs(list){
   }).join("")+"</tbody></table>";
 }
 
+$("#kbsearch").addEventListener("click",searchKB);
+$("#kbquery").addEventListener("keydown",e=>{if(e.key==="Enter")searchKB();});
 load();
 setInterval(load,2000);
 loadJobs();
 setInterval(loadJobs,1200);
 loadProjects();
+loadKBState();
+setInterval(loadKBState,30000);
 </script>
 </body>
 </html>

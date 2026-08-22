@@ -109,13 +109,19 @@ func loadSeed() ([]seedError, []seedRule, seedBook, seedBoost, error) {
 	return errs, rules, book, boost, nil
 }
 
-// buildAtoms 由種子資料組裝上下文原子並解析依賴項圖（Refs）。
+// buildAtoms 由內嵌種子資料組裝上下文原子並解析依賴項圖（Refs）。
 func buildAtoms() ([]*Atom, map[string]string, error) {
 	errs, rules, book, _, err := loadSeed()
 	if err != nil {
 		return nil, nil, err
 	}
+	return buildAtomsFromSeed(errs, rules, book, errSourceBase)
+}
 
+// buildAtomsFromSeed 由指定版本的錯誤碼資料和內嵌規則/教學文檔組裝原子。
+// errorSourceBase 必須是含一個 %s 的 URL 格式字串；import 路徑以它把每張錯誤卡
+// 鎖回對應 rustc 文件版本，內嵌資料則維持既有的 unversioned 官方來源。
+func buildAtomsFromSeed(errs []seedError, rules []seedRule, book seedBook, errorSourceBase string) ([]*Atom, map[string]string, error) {
 	// 1) 建立原子（尚未解析 Refs）。
 	atoms := make([]*Atom, 0, len(errs)+len(rules)+len(book.Chapters)+len(book.Parts)+1)
 
@@ -124,11 +130,12 @@ func buildAtoms() ([]*Atom, map[string]string, error) {
 			Kind:   KindError,
 			Code:   strings.ToUpper(e.Code),
 			Title:  e.Title,
+			ZH:     errorChinese(e.Code),
 			Body:   e.Explanation,
 			Err:    e.ErrExample,
 			Fix:    e.FixExample,
 			Tags:   []string{strings.ToUpper(e.Code), "error"},
-			Source: fmt.Sprintf(errSourceBase, strings.ToUpper(e.Code)),
+			Source: fmt.Sprintf(errorSourceBase, strings.ToUpper(e.Code)),
 		})
 	}
 	for _, r := range rules {

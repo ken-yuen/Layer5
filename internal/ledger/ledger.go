@@ -5,7 +5,7 @@
 //   - append-only JSONL + hash 串鏈（事實不可改，只增）；
 //   - 單一寫者：flock 排他鎖（多程序併發時第二個寫者立即失敗，而非交錯寫損鏈）；
 //   - 行長有界：超過 MaxLineBytes 即顯式報錯（不再靜默截斷）；
-//   - OpenVerified：開帳本前重放全鏈校驗——防「截斷+重簽末行」偽鏈。
+//   - Open/ OpenVerified：開帳本前重放全鏈校驗，並比對獨立 head anchor——防「截斷+重簽末行」偽鏈。
 package ledger
 
 import (
@@ -51,57 +51,32 @@ type Ledger struct {
 }
 
 // Open 開啟（不存在則建立）帳本並重建鏈頭以接續既有記錄。
-// 取得排他寫鎖（flock）：若另一程序已持有，回傳 ErrLocked。
+// 取得排他寫鎖（flock）後，會完整重放 hash chain 並比對獨立 head anchor：
+// 若鏈遭竄改、截斷或回滾，任何新寫入一律 fail closed。
 func Open(path string) (*Ledger, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err
 	}
 	if err := acquireLock(f); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
-	l := &Ledger{f: f, prevHash: Genesis, seq: 0}
-	sc := newLineScanner(f)
-	for {
-		line, err := sc.next()
-		if err != nil {
-			f.Close()
-			return nil, err
-		}
-		if line == nil {
-			break
-		}
-		var fact Fact
-		if json.Unmarshal(line, &fact) == nil {
-			if fact.Seq > l.seq {
-				l.seq = fact.Seq
-			}
-			l.prevHash = fact.Hash
-		}
-	}
-	return l, nil
-}
-
-// OpenVerified 是「校驗式開帳本」：Open 之後重放全鏈、逐條重算 hash。
-// 偵測到任何竄改/損毀即失敗——judge/guard 的寫入路徑一律走此入口，
-// 確保不會在偽鏈/斷鏈之上繼續追加。
-func OpenVerified(path string) (*Ledger, error) {
-	l, err := Open(path)
+	ok, head, anchor, err := VerifyAnchored(path)
 	if err != nil {
+		_ = f.Close()
 		return nil, err
-	}
-	ok, _, verr := VerifyChain(path)
-	if verr != nil {
-		l.Close()
-		return nil, verr
 	}
 	if !ok {
-		l.Close()
-		return nil, errors.New("ledger chain verification failed: tamper or corruption detected")
+		_ = f.Close()
+		return nil, fmt.Errorf("ledger verification failed (anchor=%s): tamper or corruption detected", anchor.State)
 	}
-	return l, nil
+	return &Ledger{f: f, prevHash: head, seq: anchor.CurrentSeq}, nil
 }
+
+// OpenVerified 是 Open 的語義別名。自 T-24 起 Open 本身已強制完整 hash-chain
+// 與 head-anchor 校驗，保留此入口以維持既有 judge/guard 呼叫端相容。
+func OpenVerified(path string) (*Ledger, error) { return Open(path) }
 
 // factHash 是帳本唯一的 hash 定義——judge 與 guard 必須一致，故集中於此。
 func factHash(prev, typ, actor string, seq uint64, payload []byte) string {
@@ -154,6 +129,11 @@ func (l *Ledger) Append(typ, actor string, payload any) (uint64, error) {
 		return 0, err
 	}
 	l.prevHash = f.Hash
+	// 帳本行已 fsync；接著必須把最新 head 寫入專案外的 HMAC anchor。若這步
+	// 失敗，仍回傳已提交 seq 讓呼叫端知道不可盲目重試，但明確報錯而非靜默降級。
+	if err := writeHeadAnchor(l.f.Name(), f.Seq, f.Hash); err != nil {
+		return f.Seq, fmt.Errorf("ledger append committed but head anchor update failed: %w", err)
+	}
 	return f.Seq, nil
 }
 
@@ -170,39 +150,67 @@ func (l *Ledger) Head() string {
 // Close 關閉帳本（同時釋放寫鎖）。
 func (l *Ledger) Close() error { return l.f.Close() }
 
-// VerifyChain 重放整個帳本、重算每條 hash，回傳 (是否未被竄改, 最後 hash, 錯誤)。
+// chainScan 是一次完整重放的結果。watchSeq 只供 anchor 驗證取得指定歷史序號的
+// hash，不另存整條鏈，避免大帳本驗證時的無界記憶體。
+type chainScan struct {
+	valid       bool
+	head        string
+	seq         uint64
+	watched     bool
+	watchedHash string
+}
+
+// VerifyChain 重放整個帳本、重算每條 hash 與序號連續性，回傳
+// (是否未被竄改, 最後 hash, 錯誤)。只驗證鏈本身；需要同時驗證 project 外
+// head anchor 時請用 VerifyAnchored。
 func VerifyChain(path string) (bool, string, error) {
+	scan, err := scanLedger(path, 0)
+	return scan.valid, scan.head, err
+}
+
+func scanLedger(path string, watchSeq uint64) (chainScan, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return false, "", err
+		return chainScan{}, err
 	}
 	defer f.Close()
 
+	scan := chainScan{valid: true, head: Genesis}
 	prev := Genesis
-	ok := true
+	expectedSeq := uint64(1)
 	sc := newLineScanner(f)
 	for {
 		line, err := sc.next()
 		if err != nil {
-			return false, prev, err
+			return scan, err
 		}
 		if line == nil {
 			break
 		}
 		var fact Fact
 		if json.Unmarshal(line, &fact) != nil {
-			ok = false
+			scan.valid = false
 			continue
 		}
+		if fact.Seq != expectedSeq {
+			scan.valid = false
+		}
 		if fact.PrevHash != prev {
-			ok = false
+			scan.valid = false
 		}
 		if factHash(fact.PrevHash, fact.Type, fact.Actor, fact.Seq, fact.Payload) != fact.Hash {
-			ok = false
+			scan.valid = false
+		}
+		if watchSeq != 0 && fact.Seq == watchSeq {
+			scan.watched = true
+			scan.watchedHash = fact.Hash
 		}
 		prev = fact.Hash
+		scan.head = fact.Hash
+		scan.seq = fact.Seq
+		expectedSeq++
 	}
-	return ok, prev, nil
+	return scan, nil
 }
 
 // ReadAll 讀回全部事實（供控制台 / 信任狀態重建）。

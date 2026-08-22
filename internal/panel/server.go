@@ -19,6 +19,7 @@
 //	GET  /                     人類面板（內嵌 HTML，零外部依賴）
 //	GET  /api/state            全量觀察狀態 JSON（供 AI agent / 外部系統）
 //	GET  /api/raw?project=X    單一專案的原始事實與收據
+//	GET  /api/know/*           Rust 知識庫（唯讀、無 token）
 //	GET  /api/projects         可運行目標（含 Cargo.toml 的專案）
 //	GET  /api/jobs             任務清單（含實時日誌）
 //	POST /api/jobs             啟動任務 {action, project, claims}
@@ -81,6 +82,7 @@ func BuildMuxWith(o Options, jm *JobManager, extra map[string]http.HandlerFunc) 
 		WriteJSON(w, collectState(o.Root, o.ExtraDirs, o.Depth))
 	})
 	mux.HandleFunc("/api/raw", rawHandler(o.Root, o.ExtraDirs, o.Depth))
+	mux.Handle("/api/know/", KnowledgeHandler())
 	mux.HandleFunc("/api/projects", func(w http.ResponseWriter, r *http.Request) {
 		WriteJSON(w, map[string]any{"projects": DiscoverCargoProjects(o.Root, o.ExtraDirs, o.Depth)})
 	})

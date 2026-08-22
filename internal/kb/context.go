@@ -43,6 +43,12 @@ func (s *Store) Retrieve(q string, o SearchOpts) *ContextBundle {
 		b.CacheHit = true
 		return b
 	}
+	if b, ok := s.persistent.get(key, s); ok {
+		// Disk entry 已以資料版本、key digest、原子 ID 重建／校驗，再送進 LRU；
+		// 之後相同程序的查詢不再碰磁碟。
+		s.cache.put(key, b, int64(b.TotalBytes)+256)
+		return b
+	}
 
 	hits := s.Search(q, o.K)
 	roots := make([]string, 0, len(hits))
@@ -78,6 +84,7 @@ func (s *Store) Retrieve(q string, o SearchOpts) *ContextBundle {
 		EstTokens:   total / 4,
 	}
 	s.cache.put(key, bundle, int64(total)+256)
+	s.persistent.put(key, bundle)
 	return bundle
 }
 
@@ -108,6 +115,9 @@ func writeAtomMD(sb *strings.Builder, a *Atom) {
 	switch a.Kind {
 	case KindError:
 		fmt.Fprintf(sb, "## %s — %s\n", a.Code, a.Title)
+		if a.ZH != "" {
+			fmt.Fprintf(sb, "**繁中摘要**：%s\n", a.ZH)
+		}
 		if a.Body != "" {
 			fmt.Fprintf(sb, "**說明**\n%s\n", trimCodeBlock(a.Body))
 		}

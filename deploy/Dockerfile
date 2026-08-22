@@ -28,19 +28,13 @@ FROM rust:1.98.0-bookworm AS toolchain
 COPY deploy/rust-toolchain.toml /tmp/rust-toolchain.toml
 RUN rustup component add rustfmt clippy rust-analyzer || true
 
-# 供應鏈安全工具（版本可用 ARG 鎖定；正式上線前務必釘死版本）
-ARG CARGO_AUDIT_VERSION=""
-ARG CARGO_DENY_VERSION=""
-RUN if [ -n "$CARGO_AUDIT_VERSION" ]; then \
-        cargo install cargo-audit --version "$CARGO_AUDIT_VERSION" --locked; \
-    else \
-        cargo install cargo-audit --locked; \
-    fi \
- && if [ -n "$CARGO_DENY_VERSION" ]; then \
-        cargo install cargo-deny --version "$CARGO_DENY_VERSION" --locked; \
-    else \
-        cargo install cargo-deny --locked; \
-    fi
+# T-19 供應鏈工具：固定已做 rustc 1.98 admission 的版本；不得退回 floating latest。
+ARG CARGO_AUDIT_VERSION="0.22.2"
+ARG CARGO_DENY_VERSION="0.20.2"
+RUN cargo install cargo-audit --version "$CARGO_AUDIT_VERSION" --locked \
+ && cargo install cargo-deny --version "$CARGO_DENY_VERSION" --locked \
+ && cargo audit --version \
+ && cargo deny --version
 
 # ── Stage 3：最終可執行鏡像 ───────────────────────────────────────────────
 FROM toolchain

@@ -94,7 +94,13 @@ func (b *Bridge) Append(e domain.Envelope) (AppendResult, error) {
 	}
 	defer led.Close()
 	if hasProjectedID(ledger.ReadAll(b.LedgerPath), committed.ID) {
-		_, head, _ := ledger.VerifyChain(b.LedgerPath)
+		ok, head, _, verr := ledger.VerifyAnchored(b.LedgerPath)
+		if verr != nil {
+			return AppendResult{Event: committed}, fmt.Errorf("ledger verification before duplicate projection: %w", verr)
+		}
+		if !ok {
+			return AppendResult{Event: committed}, errors.New("ledger verification before duplicate projection failed")
+		}
 		return AppendResult{Event: committed, LedgerHash: head, AlreadySeen: true}, nil
 	}
 	seq, err := led.Append(FactType(committed.Kind), b.Actor, NewBridgePayload(committed))
@@ -141,9 +147,8 @@ func (b *Bridge) SyncMissing() (SyncResult, error) {
 		seen[e.ID] = true
 		res.Projected++
 	}
-	if ok, head, verr := ledger.VerifyChain(b.LedgerPath); verr == nil {
+	if ok, head, _, verr := ledger.VerifyAnchored(b.LedgerPath); verr == nil && ok {
 		res.LedgerHead = head
-		_ = ok
 	}
 	if len(res.MissingFailed) > 0 {
 		return res, fmt.Errorf("failed to project %d event(s)", len(res.MissingFailed))
@@ -155,7 +160,8 @@ func (b *Bridge) VerifyLedger() (bool, string, error) {
 	if b == nil {
 		return false, "", errors.New("nil event ledger bridge")
 	}
-	return ledger.VerifyChain(b.LedgerPath)
+	ok, head, _, err := ledger.VerifyAnchored(b.LedgerPath)
+	return ok, head, err
 }
 
 // Close 釋放橋接持有的資源（目前帳本採「開-寫-關」每次 Append 自含，

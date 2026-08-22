@@ -110,6 +110,8 @@ go test -race ./internal/kb/panel/ledger/serve  ✅ 無資料競爭
 - **R4 供應鏈鎖定**：`Makefile` 加入 `verify-all` 前的 `staticcheck`/`vet` 前置目標，
   並把本輪的 lint 門檻固化進 CI（`.github/workflows/ci.yml` 補 staticcheck 步驟）。
 
+> **執行更新（2026-08-23）**：R1–R4 已完成，包含 KB blob v2 metadata/checksum、`ykc-know import`、judge `kb.analysis` provenance、KB MCP 工具與固定 `staticcheck v0.8.1` 的 Make/CI 閘門；驗證與接續排程見 `YKC_17_知識庫鎖版與代理可追溯開發執行報告.md`。
+
 ### P1 — 下個里程碑（代理體驗）
 
 - **R5 錯誤碼中文陳述**：518 條錯誤碼卡 + 官方教學文檔的中文回填（規則層已中文），
@@ -120,6 +122,8 @@ go test -race ./internal/kb/panel/ledger/serve  ✅ 無資料競爭
   鍵仍綁定資料版本指紋，跨版本自動失效。
 - **R8 `ykc-know diff`**：比較兩個 blob 版本的原子增刪，輸出「知識面變更清單」，
   供裁判/審計對賬。
+
+> **執行更新（2026-08-23）**：R5 已完成 tier-1 60 張錯誤卡繁中摘要 MVP（英文原文保留）；R7 完成 explicit opt-in 的跨程序 cache；R8 完成 manifest/replay/diff；R9 完成 Trust Console 唯讀知識頁。完整邊界與驗證見 `YKC_18_帳本錨定與知識面可重放擴展報告.md`。
 
 ### P2 — 架構級
 

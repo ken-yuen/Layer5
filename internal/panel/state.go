@@ -60,20 +60,21 @@ type ReceiptView struct {
 
 // ProjectState 是單一專案的聚合狀態。
 type ProjectState struct {
-	Name               string           `json:"name"`
-	Dir                string           `json:"dir"`
-	Integrity          string           `json:"integrity"` // verified | tampered | empty | error
-	ChainHead          string           `json:"chain_head"`
-	FactCount          int              `json:"fact_count"`
-	EventCount         int              `json:"event_count"`
-	ProjectedEvents    int              `json:"projected_events"`
-	MissingProjections int              `json:"missing_projections"`
-	LastFact           *FactView        `json:"last_fact,omitempty"`
-	Receipt            *ReceiptView     `json:"receipt,omitempty"`
-	Verdicts           []VerdictView    `json:"verdicts"`
-	TrustEvents        []TrustEventView `json:"trust_events"`
-	Agents             map[string]int   `json:"agents"` // agentID → 信任等級 0..3
-	Facts              []FactView       `json:"facts"`
+	Name               string              `json:"name"`
+	Dir                string              `json:"dir"`
+	Integrity          string              `json:"integrity"` // verified | tampered | empty | error
+	ChainHead          string              `json:"chain_head"`
+	Anchor             ledger.AnchorStatus `json:"anchor"`
+	FactCount          int                 `json:"fact_count"`
+	EventCount         int                 `json:"event_count"`
+	ProjectedEvents    int                 `json:"projected_events"`
+	MissingProjections int                 `json:"missing_projections"`
+	LastFact           *FactView           `json:"last_fact,omitempty"`
+	Receipt            *ReceiptView        `json:"receipt,omitempty"`
+	Verdicts           []VerdictView       `json:"verdicts"`
+	TrustEvents        []TrustEventView    `json:"trust_events"`
+	Agents             map[string]int      `json:"agents"` // agentID → 信任等級 0..3
+	Facts              []FactView          `json:"facts"`
 	// L5 借用幾何分析視圖（judge 落盤; sha256 對賬帳本 borrow.analysis 事實）
 	L5 *borrow.AnalysisReport `json:"l5,omitempty"`
 }
@@ -166,6 +167,8 @@ const maxL5Explain = 64 * 1024
 type stateKey struct {
 	ledgerModTime time.Time
 	ledgerSize    int64
+	anchorModTime time.Time // 專案外 head anchor 變動也必須失效快取
+	anchorSize    int64
 	eventFiles    int
 	l5ModTime     time.Time // L5 report.json mtime（零值 = 不存在）
 }
@@ -186,6 +189,12 @@ func computeStateKey(dir string) (stateKey, bool) {
 		return stateKey{}, false
 	}
 	key := stateKey{ledgerModTime: st.ModTime(), ledgerSize: st.Size(), eventFiles: countEventFiles(filepath.Join(dir, ".ykc", "events"))}
+	// head anchor 在專案外；它若被更新、刪除或異常改寫，也必須令觀察快取失效。
+	if anchorPath, err := ledger.AnchorPath(filepath.Join(dir, ".ykc", "ledger.jsonl")); err == nil {
+		if ast, err := os.Stat(anchorPath); err == nil {
+			key.anchorModTime, key.anchorSize = ast.ModTime(), ast.Size()
+		}
+	}
 	// L5 報告獨立於帳本更新/清除（如 RemoveReport 路徑），mtime 入鍵防陳舊快取
 	if l5st, err := os.Stat(filepath.Join(dir, ".ykc", "l5", "report.json")); err == nil {
 		key.l5ModTime = l5st.ModTime()
@@ -236,10 +245,14 @@ func computeProjectState(dir string) ProjectState {
 		}
 	}
 
-	ok, head, err := ledger.VerifyChain(path)
+	ok, head, anchor, err := ledger.VerifyAnchored(path)
+	ps.Anchor = anchor
 	switch {
 	case len(facts) == 0:
 		ps.Integrity = "empty"
+	case err != nil && (anchor.State == "rollback" || anchor.State == "mismatch" || anchor.State == "invalid"):
+		// Anchor 的失配即使裸 hash chain 仍自洽，也等同可驗證的回滾／重簽攻擊。
+		ps.Integrity = "tampered"
 	case err != nil:
 		ps.Integrity = "error"
 	case ok:
@@ -350,7 +363,8 @@ func rawHandler(root string, extra []string, depth int) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		facts := ledger.ReadAll(filepath.Join(resolved, ".ykc", "ledger.jsonl"))
-		out := map[string]any{"dir": resolved, "facts": facts}
+		_, _, anchor, _ := ledger.VerifyAnchored(filepath.Join(resolved, ".ykc", "ledger.jsonl"))
+		out := map[string]any{"dir": resolved, "facts": facts, "anchor": anchor}
 		if rc := readReceipt(resolved); rc != nil {
 			out["receipt"] = rc
 		}

@@ -47,7 +47,7 @@ type Atom struct {
 	Code     string    `json:"code,omitempty"`   // E0382 / BRW-01 / 章節 id
 	Domain   string    `json:"domain,omitempty"` // 規則領域（ownership/borrowing/…）
 	Title    string    `json:"title"`
-	ZH       string    `json:"zh,omitempty"` // 規則的中文陳述
+	ZH       string    `json:"zh,omitempty"` // 規則陳述或錯誤卡的繁中摘要（英文原文仍保留）
 	Body     string    `json:"body,omitempty"`
 	Why      string    `json:"why,omitempty"`      // 規則的「為什麼」
 	Err      string    `json:"err,omitempty"`      // 錯誤範例（會編譯失敗的程式）

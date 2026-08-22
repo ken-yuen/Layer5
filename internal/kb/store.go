@@ -1,14 +1,15 @@
 package kb
 
 import (
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -30,11 +31,13 @@ type Store struct {
 	index       *index
 	graph       *graph
 	cache       *cache
+	persistent  *persistentCache
 	version     string
 	priority    map[string]float64  // 錯誤碼 → 靜態優先級（tier）
 	termDomains map[string][]string // 詞元 → 領域（檢索加權）
 	nDocs       int
 	source      string // "embedded" 或 blob 路徑
+	meta        DatasetMeta
 }
 
 // ---------- 建構 ----------
@@ -45,15 +48,16 @@ func Open() (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newStore(atoms, "embedded")
+	return newStore(atoms, "embedded", embeddedDatasetMeta)
 }
 
-func newStore(atoms []*Atom, source string) (*Store, error) {
+func newStore(atoms []*Atom, source string, meta DatasetMeta) (*Store, error) {
 	s := &Store{
 		atoms:  atoms,
 		byID:   map[string]*Atom{},
 		byCode: map[string]*Atom{},
 		source: source,
+		meta:   normalizeMeta(meta),
 		nDocs:  len(atoms),
 	}
 	for _, a := range atoms {
@@ -66,6 +70,9 @@ func newStore(atoms []*Atom, source string) (*Store, error) {
 	s.index = newIndex(atoms)
 	s.graph = newGraph(atoms)
 	s.cache = newCache(256, 8<<20)
+	// 跨程序快取是可選的：只在 YKC_KB_CACHE_DIR 明確設定時落盤，且資料版本
+	// 已含於 key，升版後不會讀到舊上下文。
+	s.persistent = newPersistentCache(s.version)
 	prio, terms, err := loadBoost()
 	if err != nil {
 		return nil, err
@@ -114,18 +121,20 @@ func loadBoost() (map[string]float64, map[string][]string, error) {
 // ---------- blob（磁碟上的唯讀資料庫） ----------
 
 const (
-	blobMagic   = "YKCKB\x00"
-	blobVersion = uint32(1)
+	blobMagic        = "YKCKB\x00"
+	blobVersionV1    = uint32(1) // 舊格式：僅校驗 payload，無來源版本 metadata。
+	blobVersion      = uint32(2) // metadata + count + payload 一起被 sha256 覆蓋。
+	blobMaxMetaBytes = 64 * 1024
 )
 
-// Build 把當前種子資料序列化為單一不可變 blob 位元組（含 sha256 尾章）。
-// 這一步是「唯讀資料庫」唯一的寫入時機（離線建庫）。
+// Build 把當前內嵌種子資料序列化為單一不可變 blob 位元組（含已校驗 metadata
+// 標頭與 sha256 尾章）。metadata 會鎖定資料對應的 rustc 錯誤索引版本。
 func Build() ([]byte, error) {
 	atoms, _, err := buildAtoms()
 	if err != nil {
 		return nil, err
 	}
-	return encodeBlob(atoms)
+	return encodeBlob(atoms, embeddedDatasetMeta)
 }
 
 // Save 建庫並寫入 path（原子性：先寫暫存再 rename）。
@@ -134,36 +143,59 @@ func Save(path string) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return saveBlob(path, b)
 }
 
-// OpenFile 開啟磁碟 blob（唯讀）：校驗 magic、版本與 sha256 尾章，
-// 任何不符（含竄改）即報錯。資料載入記憶體後供唯讀查詢。
+func saveBlob(path string, b []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(b); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
+}
+
+// OpenFile 開啟磁碟 blob（唯讀）：校驗 magic、格式版本、metadata 與 payload
+// 的 sha256，任何不符（含竄改）即報錯。v1 blob 仍可開啟，但沒有 rustc
+// 來源版本，呼叫端可藉 RustcVersion()=="" 辨識並重新 import。
 func OpenFile(path string) (*Store, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("kb: open blob: %w", err)
 	}
-	atoms, err := decodeBlob(b)
+	atoms, meta, err := decodeBlob(b)
 	if err != nil {
 		return nil, fmt.Errorf("kb: %s: %w", path, err)
 	}
-	return newStore(atoms, path)
+	return newStore(atoms, path, meta)
 }
 
-func encodeBlob(atoms []*Atom) ([]byte, error) {
-	var out []byte
-	out = append(out, []byte(blobMagic)...)
-	var vb [4]byte
-	binary.BigEndian.PutUint32(vb[:], blobVersion)
-	out = append(out, vb[:]...)
-	var cb [8]byte
-	binary.BigEndian.PutUint64(cb[:], uint64(len(atoms)))
-	out = append(out, cb[:]...)
+func encodeBlob(atoms []*Atom, meta DatasetMeta) ([]byte, error) {
+	meta = normalizeMeta(meta)
+	mb, err := json.Marshal(meta)
+	if err != nil {
+		return nil, fmt.Errorf("encode metadata: %w", err)
+	}
+	if len(mb) > blobMaxMetaBytes {
+		return nil, fmt.Errorf("metadata %d bytes exceeds blob limit %d", len(mb), blobMaxMetaBytes)
+	}
 
 	var payload []byte
 	for _, a := range atoms {
@@ -176,30 +208,102 @@ func encodeBlob(atoms []*Atom) ([]byte, error) {
 		payload = append(payload, lb[:]...)
 		payload = append(payload, j...)
 	}
-	out = append(out, payload...)
-	sum := sha256.Sum256(payload)
+
+	// v2 的 body（metadata 長度 + metadata + count + payload）整段納入 checksum，
+	// 避免攻擊者只改 rustc_version 標頭就偽造一份「同內容、不同來源」的 KB。
+	body := make([]byte, 0, 4+len(mb)+8+len(payload))
+	var ml [4]byte
+	binary.BigEndian.PutUint32(ml[:], uint32(len(mb)))
+	body = append(body, ml[:]...)
+	body = append(body, mb...)
+	var cb [8]byte
+	binary.BigEndian.PutUint64(cb[:], uint64(len(atoms)))
+	body = append(body, cb[:]...)
+	body = append(body, payload...)
+	sum := sha256.Sum256(body)
+
+	out := make([]byte, 0, len(blobMagic)+4+len(body)+len(sum))
+	out = append(out, []byte(blobMagic)...)
+	var vb [4]byte
+	binary.BigEndian.PutUint32(vb[:], blobVersion)
+	out = append(out, vb[:]...)
+	out = append(out, body...)
 	out = append(out, sum[:]...)
 	return out, nil
 }
 
-func decodeBlob(b []byte) ([]*Atom, error) {
-	if len(b) < 6+4+8+32 {
-		return nil, fmt.Errorf("truncated blob")
+func decodeBlob(b []byte) ([]*Atom, DatasetMeta, error) {
+	if len(b) < len(blobMagic)+4+8+32 {
+		return nil, DatasetMeta{}, fmt.Errorf("truncated blob")
 	}
-	if string(b[:6]) != blobMagic {
-		return nil, fmt.Errorf("bad magic")
+	if string(b[:len(blobMagic)]) != blobMagic {
+		return nil, DatasetMeta{}, fmt.Errorf("bad magic")
 	}
-	if ver := binary.BigEndian.Uint32(b[6:10]); ver != blobVersion {
-		return nil, fmt.Errorf("unsupported version %d", ver)
+	ver := binary.BigEndian.Uint32(b[len(blobMagic) : len(blobMagic)+4])
+	switch ver {
+	case blobVersionV1:
+		return decodeBlobV1(b)
+	case blobVersion:
+		return decodeBlobV2(b)
+	default:
+		return nil, DatasetMeta{}, fmt.Errorf("unsupported version %d", ver)
+	}
+}
+
+// decodeBlobV1 保留對 v1 blob 的唯讀相容性。v1 的 checksum 僅覆蓋 payload，
+// 因此 metadata 無從復原；使用者應以 ykc-know import 重建為 v2。
+func decodeBlobV1(b []byte) ([]*Atom, DatasetMeta, error) {
+	const header = 6 + 4 + 8
+	if len(b) < header+32 {
+		return nil, DatasetMeta{}, fmt.Errorf("truncated blob")
 	}
 	count := binary.BigEndian.Uint64(b[10:18])
-	payload := b[18 : len(b)-32]
+	payload := b[header : len(b)-32]
 	want := b[len(b)-32:]
 	sum := sha256.Sum256(payload)
-	if !strings.EqualFold(hex.EncodeToString(sum[:]), hex.EncodeToString(want)) {
-		return nil, fmt.Errorf("checksum mismatch: blob tampered or corrupted")
+	if !bytes.Equal(sum[:], want) {
+		return nil, DatasetMeta{}, fmt.Errorf("checksum mismatch: blob tampered or corrupted")
 	}
-	atoms := make([]*Atom, 0, count)
+	atoms, err := decodeRecords(payload, count)
+	return atoms, DatasetMeta{}, err
+}
+
+func decodeBlobV2(b []byte) ([]*Atom, DatasetMeta, error) {
+	const fixed = 6 + 4
+	if len(b) < fixed+4+8+32 {
+		return nil, DatasetMeta{}, fmt.Errorf("truncated v2 blob")
+	}
+	body := b[fixed : len(b)-32]
+	want := b[len(b)-32:]
+	sum := sha256.Sum256(body)
+	if !bytes.Equal(sum[:], want) {
+		return nil, DatasetMeta{}, fmt.Errorf("checksum mismatch: blob tampered or corrupted")
+	}
+	if len(body) < 4 {
+		return nil, DatasetMeta{}, fmt.Errorf("truncated metadata")
+	}
+	metaLen := int(binary.BigEndian.Uint32(body[:4]))
+	if metaLen < 0 || metaLen > blobMaxMetaBytes || len(body) < 4+metaLen+8 {
+		return nil, DatasetMeta{}, fmt.Errorf("invalid metadata length %d", metaLen)
+	}
+	var meta DatasetMeta
+	if err := json.Unmarshal(body[4:4+metaLen], &meta); err != nil {
+		return nil, DatasetMeta{}, fmt.Errorf("decode metadata: %w", err)
+	}
+	meta = normalizeMeta(meta)
+	off := 4 + metaLen
+	count := binary.BigEndian.Uint64(body[off : off+8])
+	atoms, err := decodeRecords(body[off+8:], count)
+	return atoms, meta, err
+}
+
+func decodeRecords(payload []byte, count uint64) ([]*Atom, error) {
+	// 每筆至少有 4 bytes length，先以此上限拒絕偽造的巨大 count，避免 int
+	// 轉換或 make 容量造成 panic/記憶體配置攻擊。
+	if count > uint64(len(payload)/4) {
+		return nil, fmt.Errorf("record count exceeds payload")
+	}
+	atoms := make([]*Atom, 0, int(count))
 	off := 0
 	for off < len(payload) {
 		if off+4 > len(payload) {
@@ -207,7 +311,7 @@ func decodeBlob(b []byte) ([]*Atom, error) {
 		}
 		n := int(binary.BigEndian.Uint32(payload[off : off+4]))
 		off += 4
-		if off+n > len(payload) {
+		if n < 0 || off+n > len(payload) {
 			return nil, fmt.Errorf("record overruns payload")
 		}
 		var a Atom
@@ -233,6 +337,19 @@ func (s *Store) Version() string { return s.version }
 
 // Source 回傳資料來源描述（embedded 或 blob 路徑）。
 func (s *Store) Source() string { return s.source }
+
+// Metadata 回傳資料集可追溯中繼資料的副本。
+func (s *Store) Metadata() DatasetMeta { return s.meta }
+
+// RustcVersion 回傳此資料集所對應的 rustc 錯誤索引版本。legacy v1 blob 沒有這個
+// 欄位時回傳空字串，呼叫端應提醒使用者重新 import。
+func (s *Store) RustcVersion() string { return s.meta.RustcVersion }
+
+// ErrorIndexURL 回傳匯入時使用的官方錯誤索引 URL（若 legacy blob 未記錄則為空）。
+func (s *Store) ErrorIndexURL() string { return s.meta.ErrorIndexURL }
+
+// ErrorIndexSHA256 回傳匯入頁面的 SHA-256（若無則為空）。
+func (s *Store) ErrorIndexSHA256() string { return s.meta.ErrorIndexSHA256 }
 
 // ByCode 依邏輯鍵（錯誤碼 E0382 / 規則 id / 章節 id，大小寫不敏感）取原子。
 func (s *Store) ByCode(code string) (*Atom, bool) {
@@ -308,8 +425,14 @@ func (s *Store) Dependents(id string) []*Atom {
 // Cycles 回傳依賴項圖的強連通分量（診斷用，見 graph.Cycles）。
 func (s *Store) Cycles() [][]string { return s.graph.Cycles() }
 
-// CacheStats 回傳上下文緩存統計（命中/未命中/條目/位元組）。
-func (s *Store) CacheStats() cacheStats { return s.cache.stats() }
+// CacheStats 回傳上下文緩存統計（記憶體 LRU + 可選跨程序磁碟層）。
+func (s *Store) CacheStats() cacheStats {
+	stats := s.cache.stats()
+	if persistent := s.persistent.stats(); persistent.Enabled {
+		stats.Persistent = persistent
+	}
+	return stats
+}
 
 // RulesByDomain 回傳指定領域的規則原子（依 Code 排序）。
 func (s *Store) RulesByDomain(domain string) []*Atom {
@@ -321,6 +444,18 @@ func (s *Store) RulesByDomain(domain string) []*Atom {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
 	return out
+}
+
+// TranslatedErrorCount 回傳此資料集內實際帶繁中摘要的錯誤卡數量。它按 Store
+// 內容計算，故可正確區分舊 v2 blob（無翻譯）與新資料集。
+func (s *Store) TranslatedErrorCount() int {
+	count := 0
+	for _, atom := range s.atoms {
+		if atom.Kind == KindError && strings.TrimSpace(atom.ZH) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 // Domains 回傳全部規則領域（排序，去重）。

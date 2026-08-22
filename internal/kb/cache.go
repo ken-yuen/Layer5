@@ -75,10 +75,11 @@ func (c *cache) put(key string, val *ContextBundle, bytes int64) {
 }
 
 type cacheStats struct {
-	Entries int    `json:"entries"`
-	Bytes   int64  `json:"bytes"`
-	Hits    uint64 `json:"hits"`
-	Misses  uint64 `json:"misses"`
+	Entries    int                  `json:"entries"`
+	Bytes      int64                `json:"bytes"`
+	Hits       uint64               `json:"hits"`
+	Misses     uint64               `json:"misses"`
+	Persistent persistentCacheStats `json:"persistent,omitempty"`
 }
 
 func (c *cache) stats() cacheStats {

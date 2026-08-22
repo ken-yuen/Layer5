@@ -27,7 +27,14 @@ def main():
     # 3) tools/list
     r = req({"jsonrpc":"2.0","id":2,"method":"tools/list"})
     tools = r.get("result",{}).get("tools",[])
-    print("tools →", [t["name"] for t in tools])
+    names = [t["name"] for t in tools]
+    print("tools →", names)
+    required = {"ykc.check", "ykc.verify_claims", "ykc.trust_status",
+                "ykc.borrow_rules", "ykc.borrow_explain",
+                "ykc.kb_search", "ykc.kb_explain"}
+    missing = required - set(names)
+    if missing:
+        raise SystemExit("MCP tools/list missing: " + ", ".join(sorted(missing)))
 
     # 4) tools/call: ykc.check
     r = req({"jsonrpc":"2.0","id":3,"method":"tools/call",
@@ -38,6 +45,20 @@ def main():
     r = req({"jsonrpc":"2.0","id":4,"method":"tools/call",
              "params":{"name":"ykc.trust_status","arguments":{"agent_id":"agent-honest-01"}}})
     print("ykc.trust_status →", r.get("result",{}).get("content",[{}])[0].get("text",""))
+
+    # 6) tools/call: ykc.kb_search / ykc.kb_explain
+    r = req({"jsonrpc":"2.0","id":5,"method":"tools/call",
+             "params":{"name":"ykc.kb_search","arguments":{"query":"E0382","k":1}}})
+    text = r.get("result",{}).get("content",[{}])[0].get("text","")
+    if r.get("result",{}).get("isError") or "E0382" not in text or "KB dataset=" not in text:
+        raise SystemExit("ykc.kb_search failed: " + text[:200])
+
+    r = req({"jsonrpc":"2.0","id":6,"method":"tools/call",
+             "params":{"name":"ykc.kb_explain","arguments":{"code":"E0382"}}})
+    text = r.get("result",{}).get("content",[{}])[0].get("text","")
+    if r.get("result",{}).get("isError") or "精確根原子=kb-" not in text:
+        raise SystemExit("ykc.kb_explain failed: " + text[:200])
+    print("MCP KB tools → E0382 knowledge context verified")
 
     p.kill()
 
