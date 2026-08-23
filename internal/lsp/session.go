@@ -64,6 +64,9 @@ type Session struct {
 
 // Start 啟動 server 行程並完成 initialize / initialized 握手。
 func (s *Session) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if s.ServerCmd == "" {
 		s.ServerCmd = "rust-analyzer"
 	}
@@ -97,13 +100,20 @@ func (s *Session) Start(ctx context.Context) error {
 				close(s.msgs)
 				return
 			}
-			s.msgs <- raw
+			// Do not let a timed-out caller leave this goroutine blocked forever
+			// when a chatty server fills the bounded message queue.
+			select {
+			case s.msgs <- raw:
+			case <-s.exited:
+				close(s.msgs)
+				return
+			}
 		}
 	}()
 
 	initParams, _ := json.Marshal(map[string]any{
 		"processId": nil,
-		"rootUri":   "file://" + s.Root,
+		"rootUri":   fileURI(s.Root),
 		"capabilities": map[string]any{
 			"textDocument": map[string]any{"publishDiagnostics": map[string]any{}},
 		},
@@ -174,6 +184,9 @@ func (s *Session) Kill() {
 //
 // 完成後 didClose，讓 session 可對同檔重複查詢。
 func (s *Session) Diagnostics(ctx context.Context, absFile string) ([]Diagnostic, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	content, err := os.ReadFile(absFile)
 	if err != nil {
 		return nil, err
@@ -181,7 +194,7 @@ func (s *Session) Diagnostics(ctx context.Context, absFile string) ([]Diagnostic
 	s.version++
 	dp, _ := json.Marshal(map[string]any{
 		"textDocument": map[string]any{
-			"uri":        "file://" + absFile,
+			"uri":        fileURI(absFile),
 			"languageId": "rust",
 			"version":    s.version,
 			"text":       string(content),
@@ -192,12 +205,12 @@ func (s *Session) Diagnostics(ctx context.Context, absFile string) ([]Diagnostic
 	}
 	defer func() {
 		cp, _ := json.Marshal(map[string]any{
-			"textDocument": map[string]any{"uri": "file://" + absFile},
+			"textDocument": map[string]any{"uri": fileURI(absFile)},
 		})
 		_ = Send(s.stdin, Msg{Method: "textDocument/didClose", Params: cp})
 	}()
 
-	want := "file://" + absFile
+	want := fileURI(absFile)
 	var last []Diagnostic
 	seen := false
 	// 空集後的寬限窗（等 flycheck 後續推送）：冷 session 首查時 cargo check
@@ -334,6 +347,15 @@ func NewManager(serverCmd string) *Manager {
 	}
 }
 
+// RestartCount returns the watchdog counter without exposing an unsynchronized
+// read to HTTP handlers. Restarts itself is kept for compatibility with the
+// existing in-package observer/tests; writes happen under m.mu.
+func (m *Manager) RestartCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.Restarts
+}
+
 // Available 如實申報 server 是否可啟動（borrow.Analyzer 範式）。
 func (m *Manager) Available() (bool, string) {
 	name := m.ServerCmd
@@ -348,6 +370,14 @@ func (m *Manager) Available() (bool, string) {
 
 // Diagnostics 取單檔診斷；session 惰性啟動，失敗觸發看門狗。
 func (m *Manager) Diagnostics(ctx context.Context, absFile string) ([]Diagnostic, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	abs, err := filepath.Abs(absFile)
+	if err != nil {
+		return nil, fmt.Errorf("解析檔案路徑失敗: %w", err)
+	}
+	absFile = abs
 	if ok, why := m.Available(); !ok {
 		return nil, fmt.Errorf("%s", why)
 	}

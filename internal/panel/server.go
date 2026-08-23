@@ -31,6 +31,8 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -55,18 +57,39 @@ type Options struct {
 	Depth     int      // 專案發現掃描深度（0=僅根目錄）
 }
 
+func decodeJSON(r io.Reader, dst any) error {
+	dec := json.NewDecoder(r)
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
 // BuildMux 組裝面板全部端點；extra 允許宿主（ykc-serve）附加自己的端點
 // （如 /api/claims、/api/watch——掛在面板同一個 mux、共用同一套 token 邊界）。
 func BuildMux(o Options, extra map[string]http.HandlerFunc) *http.ServeMux {
 	if o.Depth < 0 {
 		o.Depth = 0
 	}
-	jm := NewJobManager(o.BinDir, o.Root)
+	jm := NewJobManagerWithDiscovery(o.BinDir, o.Root, o.ExtraDirs, o.Depth)
 	return BuildMuxWith(o, jm, extra)
 }
 
 // BuildMuxWith 是 BuildMux 的可注入版本（serve 以既有 JobManager 構建，避免雙實例）。
 func BuildMuxWith(o Options, jm *JobManager, extra map[string]http.HandlerFunc) *http.ServeMux {
+	if o.Depth < 0 {
+		o.Depth = 0
+	}
+	if jm == nil {
+		jm = NewJobManagerWithDiscovery(o.BinDir, o.Root, o.ExtraDirs, o.Depth)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -79,11 +102,19 @@ func BuildMuxWith(o Options, jm *JobManager, extra map[string]http.HandlerFunc) 
 		_, _ = w.Write(b)
 	})
 	mux.HandleFunc("/api/state", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
 		WriteJSON(w, collectState(o.Root, o.ExtraDirs, o.Depth))
 	})
 	mux.HandleFunc("/api/raw", rawHandler(o.Root, o.ExtraDirs, o.Depth))
 	mux.Handle("/api/know/", KnowledgeHandler())
 	mux.HandleFunc("/api/projects", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
 		WriteJSON(w, map[string]any{"projects": DiscoverCargoProjects(o.Root, o.ExtraDirs, o.Depth)})
 	})
 	mux.HandleFunc("/api/jobs", func(w http.ResponseWriter, r *http.Request) {
@@ -100,8 +131,8 @@ func BuildMuxWith(o Options, jm *JobManager, extra map[string]http.HandlerFunc) 
 				Project string `json:"project"`
 				Claims  string `json:"claims"`
 			}
-			if json.NewDecoder(r.Body).Decode(&req) != nil || req.Action == "" || req.Project == "" {
-				http.Error(w, "需要 action 與 project", http.StatusBadRequest)
+			if decodeJSON(r.Body, &req) != nil || req.Action == "" || req.Project == "" {
+				http.Error(w, "需要單一 JSON object，且包含 action 與 project", http.StatusBadRequest)
 				return
 			}
 			j, err := jm.Start(req.Action, req.Project, req.Claims)
@@ -126,8 +157,8 @@ func BuildMuxWith(o Options, jm *JobManager, extra map[string]http.HandlerFunc) 
 		var req struct {
 			ID string `json:"id"`
 		}
-		if json.NewDecoder(r.Body).Decode(&req) != nil || req.ID == "" {
-			http.Error(w, "需要 id", http.StatusBadRequest)
+		if decodeJSON(r.Body, &req) != nil || req.ID == "" {
+			http.Error(w, "需要單一 JSON object，且包含 id", http.StatusBadRequest)
 			return
 		}
 		if err := jm.Stop(req.ID); err != nil {
@@ -137,6 +168,10 @@ func BuildMuxWith(o Options, jm *JobManager, extra map[string]http.HandlerFunc) 
 		WriteJSON(w, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
 		_, _ = w.Write([]byte("ok"))
 	})
 	for pattern, h := range extra {

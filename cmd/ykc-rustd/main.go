@@ -8,7 +8,7 @@
 //
 // 用法：
 //
-//	ykc-rustd [-addr 127.0.0.1] [-port 8093] [-server rust-analyzer]
+//	ykc-rustd [-addr 127.0.0.1] [-port 8093] [-server rust-analyzer] [-token <secret>]
 //
 // 端點（唯讀，無副作用）：
 //
@@ -39,6 +39,7 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1", "綁定位址")
 	port := flag.Int("port", 8093, "監聽埠")
 	server := flag.String("server", "rust-analyzer", "LSP server 命令")
+	token := flag.String("token", os.Getenv("YKC_RUSTD_TOKEN"), "Bearer token（綁定非本機位址時必填）")
 	diagTimeout := flag.Duration("diag-timeout", 15*time.Second, "單次診斷上限")
 	initTimeout := flag.Duration("init-timeout", 30*time.Second, "session initialize 上限")
 	maxAge := flag.Duration("max-age", 2*time.Hour, "session 最大壽命（防 r-a 記憶體膨脹）")
@@ -58,14 +59,24 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+		if !panel.Authed(w, r, *token) {
+			return
+		}
 		ok, why := m.Available()
 		panel.WriteJSON(w, map[string]any{
-			"ok": ok, "reason": why, "restarts": m.Restarts, "server": *server,
+			"ok": ok, "reason": why, "restarts": m.RestartCount(), "server": *server,
 		})
 	})
 	mux.HandleFunc("/diagnostics", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+		if !panel.Authed(w, r, *token) {
 			return
 		}
 		file := r.URL.Query().Get("file")
@@ -98,6 +109,9 @@ func main() {
 	})
 
 	listen := net.JoinHostPort(*addr, strconv.Itoa(*port))
+	if *token == "" && !isLoopbackListen(listen) {
+		log.Fatalf("refusing to expose rustd on %s without -token/YKC_RUSTD_TOKEN", listen)
+	}
 	srv := &http.Server{Addr: listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -113,4 +127,16 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+func isLoopbackListen(listen string) bool {
+	host, _, err := net.SplitHostPort(listen)
+	if err != nil {
+		host = listen
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

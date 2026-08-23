@@ -17,7 +17,7 @@
 #
 # 完成後 $YKC_HOME/go 指向 go1.27.0 工具鏈（與 dev-setup.sh 的預期位置一致）。
 # 冪等：已建成的級別自動跳過。
-set -u
+set -Eeuo pipefail
 YKC_HOME="${YKC_HOME:-$HOME/.ykc}"
 LOG="$YKC_HOME/bootstrap-go.log"
 mkdir -p "$YKC_HOME"

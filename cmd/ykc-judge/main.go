@@ -62,9 +62,19 @@ func main() {
 }
 
 // appendFact 追加事實；失敗時醒目告警（裁判完整性不應被靜默破壞）。
-func appendFact(led *ledger.Ledger, typ, actor string, payload any) {
+func appendFact(led *ledger.Ledger, typ, actor string, payload any) error {
 	if _, err := led.Append(typ, actor, payload); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️ 帳本寫入失敗（%s）: %v\n", typ, err)
+		fmt.Fprintf(os.Stderr, "❌ 帳本寫入失敗（%s）: %v\n", typ, err)
+		return err
+	}
+	return nil
+}
+
+func mustAppendFact(led *ledger.Ledger, typ, actor string, payload any) {
+	if err := appendFact(led, typ, actor, payload); err != nil {
+		// A receipt without its corresponding fact is not an auditable judge
+		// result. Stop instead of continuing with a partially recorded chain.
+		os.Exit(1)
 	}
 }
 
@@ -82,7 +92,7 @@ func runJudge(dir, key, kbPath string) {
 	}
 	defer led.Close()
 
-	appendFact(led, "judge.start", "ykc-judge", map[string]any{
+	mustAppendFact(led, "judge.start", "ykc-judge", map[string]any{
 		"project": dir, "time": time.Now().UTC().Format(time.RFC3339),
 	})
 
@@ -91,19 +101,19 @@ func runJudge(dir, key, kbPath string) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	appendFact(led, "crate.check.before", "ykc-judge", map[string]any{
+	mustAppendFact(led, "crate.check.before", "ykc-judge", map[string]any{
 		"errors": len(before.Errors), "warnings": before.Warnings, "fingerprints": fingerprints(before.Errors),
 	})
 
 	var fixed, remaining []Error
 	if len(before.Errors) > 0 {
 		if ferr := cargoFix(dir); ferr != nil {
-			appendFact(led, "crate.fix", "ykc-judge", map[string]any{"ok": false, "note": ferr.Error()})
+			mustAppendFact(led, "crate.fix", "ykc-judge", map[string]any{"ok": false, "note": ferr.Error()})
 			remaining = before.Errors
 		} else {
 			after, aerr := cargoCheck(dir)
 			if aerr != nil {
-				appendFact(led, "crate.fix", "ykc-judge", map[string]any{"ok": false, "note": aerr.Error()})
+				mustAppendFact(led, "crate.fix", "ykc-judge", map[string]any{"ok": false, "note": aerr.Error()})
 				remaining = before.Errors
 			} else {
 				afterFP := map[string]bool{}
@@ -117,7 +127,7 @@ func runJudge(dir, key, kbPath string) {
 						remaining = append(remaining, e)
 					}
 				}
-				appendFact(led, "crate.fix", "ykc-judge", map[string]any{
+				mustAppendFact(led, "crate.fix", "ykc-judge", map[string]any{
 					"ok": true, "fixed": len(fixed), "remaining": len(remaining),
 				})
 			}
@@ -134,7 +144,7 @@ func runJudge(dir, key, kbPath string) {
 		} else {
 			knowledge = buildJudgeKnowledge(st, remaining)
 			if len(knowledge.analysis.Usages) > 0 {
-				appendFact(led, "kb.analysis", "ykc-judge", knowledge.analysis)
+				mustAppendFact(led, "kb.analysis", "ykc-judge", knowledge.analysis)
 			}
 		}
 	}
@@ -159,7 +169,7 @@ func runJudge(dir, key, kbPath string) {
 	}
 	b, _ := json.MarshalIndent(rcpt, "", "  ")
 	_ = os.WriteFile(filepath.Join(ledgerDir, "receipt.json"), b, 0o644)
-	appendFact(led, "receipt.issue", "ykc-judge", map[string]any{"overall": overall, "chain_hash": chainHash})
+	mustAppendFact(led, "receipt.issue", "ykc-judge", map[string]any{"overall": overall, "chain_hash": chainHash})
 
 	// ── 人讀摘要 ──
 	fmt.Println("===============================================")

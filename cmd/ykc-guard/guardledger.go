@@ -27,14 +27,24 @@ func openBridge(dir string) (*eventledger.Bridge, error) {
 
 // appendTrustEvent 經 bridge 寫入一條信任事實（claim.verdict / trust.event /
 // trust.reset）。失敗時醒目告警（裁判完整性不應被靜默破壞）。
-func appendTrustEvent(br *eventledger.Bridge, dir string, kind domain.EventKind, sessionID string, payload any) {
+func appendTrustEvent(br *eventledger.Bridge, dir string, kind domain.EventKind, sessionID string, payload any) error {
 	ev, err := domain.NewEnvelope(kind, sessionID, dir, payload)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️ 信任事件組裝失敗（%s）: %v\n", kind, err)
-		return
+		fmt.Fprintf(os.Stderr, "❌ 信任事件組裝失敗（%s）: %v\n", kind, err)
+		return err
 	}
 	if _, err := br.Append(ev); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️ 帳本寫入失敗（%s）: %v\n", kind, err)
+		fmt.Fprintf(os.Stderr, "❌ 帳本寫入失敗（%s）: %v\n", kind, err)
+		return err
+	}
+	return nil
+}
+
+func mustAppendTrustEvent(br *eventledger.Bridge, dir string, kind domain.EventKind, sessionID string, payload any) {
+	if err := appendTrustEvent(br, dir, kind, sessionID, payload); err != nil {
+		// Do not compute or print a trust result after its evidence event failed
+		// to reach the tamper-evident projection.
+		os.Exit(1)
 	}
 }
 

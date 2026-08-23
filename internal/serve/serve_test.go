@@ -9,10 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"ykc/internal/ledger"
+	"ykc/internal/precompile"
+	"ykc/internal/sandbox"
 	"ykc/internal/watch"
 )
 
@@ -34,7 +37,7 @@ func makeProject(t *testing.T, root, name string) string {
 
 func newTestServer(t *testing.T, root string, mutate func(*Config)) *Server {
 	t.Helper()
-	cfg := Config{Root: root, BinDir: filepath.Join(root, "bin"), Depth: 1, Debounce: 50 * time.Millisecond}
+	cfg := Config{Root: root, BinDir: filepath.Join(root, "bin"), Depth: 1, Debounce: 50 * time.Millisecond, NoAutoPrecompile: true}
 	if mutate != nil {
 		mutate(&cfg)
 	}
@@ -295,6 +298,157 @@ func TestAutoJudgeSingleFlight(t *testing.T) {
 	// 無 bin/ykc-judge → Start 報錯被記錄；關鍵是不 panic、批次照樣入帳本
 	if _, err := os.Stat(filepath.Join(proj, ".ykc", "ledger.jsonl")); err != nil {
 		t.Fatalf("ledger should still be written: %v", err)
+	}
+}
+
+// TestAutoPrecompileEnabledByDefault：主動預譯是 serve 的預設，而非面板按鈕的可選副作用。
+func TestAutoPrecompileEnabledByDefault(t *testing.T) {
+	root := t.TempDir()
+	makeProject(t, root, "demo")
+	s, err := New(Config{Root: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.precompileEnabled() {
+		t.Fatal("serve must enable active precompile by default")
+	}
+	if s.cfg.PrecompileBackend != sandbox.BackendAuto {
+		t.Fatalf("default precompile backend = %q, want auto", s.cfg.PrecompileBackend)
+	}
+}
+
+func testPrecompileReport(project string, backend sandbox.Backend) precompile.Report {
+	return precompile.Report{
+		ProjectDir: project,
+		Overall:    precompile.StatusPassed,
+		Sandbox: sandbox.Capability{
+			Backend: backend, Available: true, Trust: sandbox.TrustModerate,
+		},
+		Stages: []precompile.Stage{{Name: "fake-check", Status: precompile.StatusPassed}},
+	}
+}
+
+// TestAutoPrecompileOnFileChange：Rust 工作區變更會產生 report 與 ledger 事件。
+func TestAutoPrecompileOnFileChange(t *testing.T) {
+	root := t.TempDir()
+	proj := makeProject(t, root, "demo")
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	s := newTestServer(t, root, func(c *Config) {
+		c.NoAutoPrecompile = false
+		c.PrecompileBackend = sandbox.BackendBwrap
+		c.PrecompileRun = func(ctx context.Context, opt precompile.Options) (precompile.Report, error) {
+			started <- struct{}{}
+			<-release
+			return testPrecompileReport(opt.ProjectDir, sandbox.BackendBwrap), nil
+		}
+	})
+	s.mu.Lock()
+	s.projects = []string{proj}
+	s.mu.Unlock()
+
+	s.handleBatch(context.Background(), []watch.Event{{Op: watch.OpWrite, Path: filepath.Join(proj, "src", "main.rs")}})
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("active precompile did not start after Rust file change")
+	}
+	if view := s.precompileStateView(proj); !view.Running {
+		t.Fatalf("precompile should be running: %+v", view)
+	}
+	close(release)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		view := s.precompileStateView(proj)
+		if view.RunCount == 1 && !view.Running && view.LastOverall == precompile.StatusPassed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("precompile did not finish: %+v", view)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	facts := ledger.ReadAll(filepath.Join(proj, ".ykc", "ledger.jsonl"))
+	var reportFacts int
+	for _, fact := range facts {
+		if fact.Type == "event.precompile.report" {
+			reportFacts++
+		}
+	}
+	if reportFacts != 1 {
+		t.Fatalf("expected one precompile report fact, got %d (%v)", reportFacts, facts)
+	}
+	b, err := os.ReadFile(filepath.Join(proj, ".ykc", "precompile", "report.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report precompile.Report
+	if err := json.Unmarshal(b, &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Trigger != "file-change" || report.Overall != precompile.StatusPassed {
+		t.Fatalf("unexpected active report: %+v", report)
+	}
+}
+
+// TestAutoPrecompileCoalescesEdits：編譯期間的多次修改合併成一輪最新 follow-up。
+func TestAutoPrecompileCoalescesEdits(t *testing.T) {
+	root := t.TempDir()
+	proj := makeProject(t, root, "demo")
+	var calls atomic.Int32
+	firstStarted := make(chan struct{}, 1)
+	secondStarted := make(chan struct{}, 1)
+	releaseFirst := make(chan struct{})
+	s := newTestServer(t, root, func(c *Config) {
+		c.NoAutoPrecompile = false
+		c.PrecompileBackend = sandbox.BackendBwrap
+		c.PrecompileRun = func(ctx context.Context, opt precompile.Options) (precompile.Report, error) {
+			if calls.Add(1) == 1 {
+				firstStarted <- struct{}{}
+				<-releaseFirst
+			} else {
+				secondStarted <- struct{}{}
+			}
+			return testPrecompileReport(opt.ProjectDir, sandbox.BackendBwrap), nil
+		}
+	})
+	s.mu.Lock()
+	s.projects = []string{proj}
+	s.mu.Unlock()
+
+	file := filepath.Join(proj, "src", "main.rs")
+	s.handleBatch(context.Background(), []watch.Event{{Op: watch.OpWrite, Path: file}})
+	select {
+	case <-firstStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first active precompile did not start")
+	}
+	// Two more edits while the first run is active must not launch two
+	// concurrent cargo/rustc processes, but must leave one pending follow-up.
+	s.handleBatch(context.Background(), []watch.Event{{Op: watch.OpWrite, Path: file}})
+	s.handleBatch(context.Background(), []watch.Event{{Op: watch.OpWrite, Path: file}})
+	close(releaseFirst)
+	select {
+	case <-secondStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("pending edit did not produce a follow-up precompile")
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		view := s.precompileStateView(proj)
+		if view.RunCount == 2 && !view.Running && view.RequestCount == 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("coalescing state mismatch: %+v", view)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("expected two sequential runs, got %d", got)
 	}
 }
 

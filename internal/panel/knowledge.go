@@ -22,12 +22,20 @@ func KnowledgeHandler() http.Handler {
 		knowledgeStore, knowledgeInitErr = kb.Open()
 	})
 	if knowledgeInitErr != nil {
-		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				http.Error(w, "GET only", http.StatusMethodNotAllowed)
+				return
+			}
 			http.Error(w, "kb unavailable: "+knowledgeInitErr.Error(), http.StatusServiceUnavailable)
 		})
 	}
 	h := kb.Handler(knowledgeStore)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
 		r2 := r.Clone(r.Context())
 		suffix := strings.TrimPrefix(r.URL.Path, "/api/know")
 		if suffix == "" {

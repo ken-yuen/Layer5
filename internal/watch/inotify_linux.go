@@ -16,10 +16,12 @@ package watch
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -42,8 +44,11 @@ type inotifyBackend struct {
 }
 
 type pendingRename struct {
-	path string
+	path  string
+	timer *time.Timer
 }
+
+const renamePairWindow = 100 * time.Millisecond
 
 // NewInotifyBackend 建立 inotify 後端。
 func NewInotifyBackend() (Backend, error) {
@@ -96,18 +101,10 @@ func (b *inotifyBackend) addTree(dir string) error {
 		if !e.IsDir() {
 			continue
 		}
-		name := e.Name()
-		excluded := false
-		for _, d := range DefaultExcludeDirs {
-			if name == d {
-				excluded = true
-				break
-			}
-		}
-		if excluded {
+		if isExcludedWatchDir(e.Name()) {
 			continue
 		}
-		if err := b.addTree(filepath.Join(dir, name)); err != nil {
+		if err := b.addTree(filepath.Join(dir, e.Name())); err != nil {
 			return err
 		}
 	}
@@ -146,6 +143,12 @@ func (b *inotifyBackend) Start() {
 func (b *inotifyBackend) Close() error {
 	b.mu.Lock()
 	b.closing = true
+	for cookie, pending := range b.pending {
+		if pending.timer != nil {
+			pending.timer.Stop()
+		}
+		delete(b.pending, cookie)
+	}
 	b.mu.Unlock()
 	b.once.Do(func() {
 		close(b.closed)
@@ -179,7 +182,6 @@ func (b *inotifyBackend) readLoop() {
 			return
 		}
 		b.consume(buf[:n])
-		b.flushPendingRenames()
 	}
 }
 
@@ -215,6 +217,13 @@ func (b *inotifyBackend) consume(raw []byte) {
 }
 
 func (b *inotifyBackend) handle(wd int, mask uint32, cookie uint32, name string) {
+	if mask&syscall.IN_Q_OVERFLOW != 0 {
+		select {
+		case b.errors <- errors.New("inotify queue overflow: events dropped; rescan advised"):
+		default:
+		}
+		return
+	}
 	b.mu.Lock()
 	dir, ok := b.dirByWd[wd]
 	b.mu.Unlock()
@@ -228,12 +237,6 @@ func (b *inotifyBackend) handle(wd int, mask uint32, cookie uint32, name string)
 	isDir := mask&syscall.IN_ISDIR != 0
 
 	switch {
-	case mask&syscall.IN_Q_OVERFLOW != 0:
-		select {
-		case b.errors <- errors.New("inotify queue overflow: events dropped; rescan advised"):
-		default:
-		}
-		return
 	case mask&syscall.IN_IGNORED != 0:
 		b.mu.Lock()
 		delete(b.wdByDir, dir)
@@ -241,22 +244,49 @@ func (b *inotifyBackend) handle(wd int, mask uint32, cookie uint32, name string)
 		b.mu.Unlock()
 		return
 	case mask&syscall.IN_MOVED_FROM != 0:
+		if cookie == 0 {
+			b.emit(Event{Op: OpRemove, Path: full, IsDir: isDir})
+			return
+		}
 		b.mu.Lock()
+		// A cookie should be unique, but stop/replace a stale entry rather
+		// than leaking a timer if the kernel reuses one unexpectedly.
+		if old, ok := b.pending[cookie]; ok && old.timer != nil {
+			old.timer.Stop()
+		}
 		b.pending[cookie] = pendingRename{path: full}
+		b.mu.Unlock()
+		timer := time.AfterFunc(renamePairWindow, func() { b.expireRename(cookie, full) })
+		b.mu.Lock()
+		if pending, ok := b.pending[cookie]; ok && pending.path == full {
+			pending.timer = timer
+			b.pending[cookie] = pending
+		} else {
+			// MOVED_TO paired before the timer was installed.
+			timer.Stop()
+		}
 		b.mu.Unlock()
 		return
 	case mask&syscall.IN_MOVED_TO != 0:
 		b.mu.Lock()
-		_, had := b.pending[cookie]
-		delete(b.pending, cookie)
+		pending, had := b.pending[cookie]
+		if had {
+			delete(b.pending, cookie)
+		}
 		b.mu.Unlock()
 		if had {
+			if pending.timer != nil {
+				pending.timer.Stop()
+			}
 			b.emit(Event{Op: OpRename, Path: full, IsDir: isDir})
 		} else {
 			b.emit(Event{Op: OpCreate, Path: full, IsDir: isDir})
 		}
 		if isDir {
-			_ = b.addTree(full) // 新遷入的子樹
+			if err := b.addTree(full); err != nil {
+				b.reportError(fmt.Errorf("inotify add moved directory %s: %w", full, err))
+			}
+			b.rescanNewDir(full)
 		}
 		return
 	case mask&syscall.IN_DELETE != 0:
@@ -265,7 +295,9 @@ func (b *inotifyBackend) handle(wd int, mask uint32, cookie uint32, name string)
 	case mask&syscall.IN_CREATE != 0:
 		b.emit(Event{Op: OpCreate, Path: full, IsDir: isDir})
 		if isDir {
-			_ = b.addTree(full)
+			if err := b.addTree(full); err != nil {
+				b.reportError(fmt.Errorf("inotify add created directory %s: %w", full, err))
+			}
 			b.rescanNewDir(full) // watch 建立前已生成的檔案補報
 		}
 		return
@@ -279,26 +311,58 @@ func (b *inotifyBackend) handle(wd int, mask uint32, cookie uint32, name string)
 
 // rescanNewDir 補掃新目錄（競態補報：目錄建立與 watch 之間寫入的檔案）。
 func (b *inotifyBackend) rescanNewDir(dir string) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
+	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		b.emit(Event{Op: OpCreate, Path: filepath.Join(dir, e.Name())})
+		if entry.IsDir() {
+			if path != dir && isExcludedWatchDir(entry.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if entry.Type().IsRegular() {
+			b.emit(Event{Op: OpCreate, Path: path})
+		}
+		return nil
+	})
+	if err != nil {
+		b.reportError(fmt.Errorf("inotify rescan %s: %w", dir, err))
 	}
 }
 
-// flushPendingRenames 把未配對的 MOVED_FROM 轉為 remove。
-func (b *inotifyBackend) flushPendingRenames() {
+func isExcludedWatchDir(name string) bool {
+	for _, excluded := range DefaultExcludeDirs {
+		if name == excluded {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *inotifyBackend) reportError(err error) {
+	if err == nil {
+		return
+	}
+	select {
+	case b.errors <- err:
+	default:
+	}
+}
+
+// expireRename 把逾時未配對的 MOVED_FROM 轉為 remove。延遲配對讓
+// MOVED_FROM 與 MOVED_TO 分跨兩次 read(2) 時仍能產生 rename，而不會在
+// 每個 read 區塊結尾過早把所有移動都拆成 remove/create。
+func (b *inotifyBackend) expireRename(cookie uint32, path string) {
 	b.mu.Lock()
-	left := b.pending
-	b.pending = map[uint32]pendingRename{}
+	pending, ok := b.pending[cookie]
+	if ok && pending.path == path {
+		delete(b.pending, cookie)
+	}
+	closing := b.closing
 	b.mu.Unlock()
-	for _, p := range left {
-		b.emit(Event{Op: OpRemove, Path: p.path})
+	if ok && pending.path == path && !closing {
+		b.emit(Event{Op: OpRemove, Path: path})
 	}
 }
 

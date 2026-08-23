@@ -9,16 +9,14 @@
 #   make guard-verify   — T-14 確定性比對（誠實 vs 撒謊）
 #   make guard-score    — T-15 信任棘輪（撒謊代理 → T0）
 #   make guard-mcp      — T-17 MCP server 測試
-#   make panel    — 啟動 YKC Trust Console（唯讀觀察台，port 8080）
+#   make panel    — 啟動 YKC Trust Console + 主動 Rust 預譯（port 8080）
 #   make precompile — Rust cargo/rustc 預編譯檢查
 #   make health   — 全專案健檢（gofmt + vet + staticcheck + build + 回歸）
 #   make anchor-test — 獨立 head anchor（截斷／重簽／remote witness）回歸
 #   make know-import / know-replay / know-diff — KB release 的建庫、可重放與審計差異
-#   make deps / deps-test / deps-setup — T-19 L1 capability worker、fixtures、顯式鎖版工具
-#   make structure / structure-test — T-20 純 Go Rust/Go grammar capability worker
 #   make image   — 建置 OCI 鏡像（Podman 優先，回退 Docker）
 #   make up      — 本機容器一鍵運行
-.PHONY: setup verify-all build binaries smoke atom precompile judge lsp guard guard-verify guard-score guard-mcp panel serve health image up clean l5-test borrow-test anchor-test cap pack-deps pack-structure deps deps-test deps-setup structure structure-test structure-size thin-core-test capability-test know know-test know-build know-import know-replay know-diff fmt-check vet staticcheck lint
+.PHONY: setup bootstrap-go verify-all build binaries smoke atom precompile judge lsp guard guard-verify guard-score guard-mcp panel serve health image up clean l5-test borrow-test anchor-test know know-test know-build know-import know-replay know-diff know-serve toolchain-test contract-test fmt-check vet staticcheck toolchain-guard lint
 
 # 工具鏈位置：預設 $HOME/.ykc（零 sudo）；可用環境變數覆寫（如 YKC_HOME=/opt/ykc）
 YKC_HOME ?= $(HOME)/.ykc
@@ -100,8 +98,6 @@ verify-all: lint build
 	@./bin/ykc-serve -root . -port 18099 >/tmp/ykc-serve-verify.log 2>&1 & SERVER_PID=$$!; 	  for i in 1 2 3 4 5 6 7 8 9 10; do curl -sf http://127.0.0.1:18099/healthz >/dev/null 2>&1 && break; sleep 0.5; done; 	  test "$$(curl -sf http://127.0.0.1:18099/healthz)" = "ok" || { echo "serve healthz FAIL"; cat /tmp/ykc-serve-verify.log; kill $$SERVER_PID; exit 1; }; 	  echo "  healthz OK"; 	  CLAIMS_RESP=$$(curl -s -X POST http://127.0.0.1:18099/api/claims -d '{"project":"./demo-broken-cli","kind":"tests_passed"}'); 	  echo "$$CLAIMS_RESP" | grep -q fake_test_claim && echo "  datalog 護欄駁回 OK" || { echo "claims guardrail FAIL: $$CLAIMS_RESP"; kill $$SERVER_PID; exit 1; }; 	  curl -sf http://127.0.0.1:18099/api/watch | grep -q '"backend"' && echo "  /api/watch OK" || { echo "api/watch FAIL"; kill $$SERVER_PID; exit 1; }; 	  kill $$SERVER_PID; sleep 0.5; 	  (kill -0 $$SERVER_PID 2>/dev/null && { echo "serve 未優雅退出"; exit 1; }) || echo "  優雅退出 OK"
 	@echo "  ⑫ 獨立 head anchor → 預期截斷／重簽／遠端 witness 防線全綠"
 	@$(MAKE) --no-print-directory anchor-test >/dev/null && echo "  head anchor OK"
-	@echo "  ⑬ T-19/T-20 capability admission → metadata/audit fixture + pure-Go Rust/Go grammar size boundary"
-	@$(MAKE) --no-print-directory capability-test >/dev/null && echo "  L1/L2 capability admission OK"
 	@echo "=============================================================="
 	@echo "✅ 全功能實測完成（②⑦ 的 FAIL/TAKEOVER 為反欺騙的預期行為）"
 
@@ -158,7 +154,8 @@ guard-mcp: guard
 	python3 ./test-mcp-client.py ./bin/ykc-guard ./demo-rust-cli
 
 panel: binaries
-	./bin/ykc-panel -root . -port 8080
+	# 主動預譯由 ykc-serve 提供；Trust Console 仍是同一個面板路由。
+	./bin/ykc-serve -root . -port 8080
 
 # 常駐進程（YKC_14）：監看+聲明評估+面板合一（atom+judge+guard+panel 的運行時面）
 serve: binaries
@@ -188,70 +185,6 @@ contract-test:
 # T-24：獨立 head anchor 的截斷／重簽／遠端 witness 回歸。
 anchor-test:
 	go test ./internal/ledger/... -run 'TestHeadAnchor|TestOptionalRemoteWitness|TestRequiredRemoteWitness' -count=1
-
-# ── Capability pack core（manifest verification + JSONL worker composition）─
-cap:
-	mkdir -p bin
-	go build -o bin/ykc-cap ./cmd/ykc-cap
-	@echo "ykc-cap built: bin/ykc-cap"
-
-# ── T-19 L1 capability pack（Cargo dependency evidence）────────────
-# 工具安裝是顯式、鎖版行為；scan 本身絕不隱式下載 audit DB 或 Cargo tool。
-CARGO_AUDIT_VERSION ?= 0.22.2
-CARGO_DENY_VERSION ?= 0.20.2
-STRUCTURE_TAGS := grammar_subset grammar_subset_rust grammar_subset_go
-
-deps:
-	mkdir -p bin
-	go build -o bin/ykc-deps ./cmd/ykc-deps
-	@echo "ykc-deps built: bin/ykc-deps"
-
-deps-test:
-	go test ./internal/capability/... ./internal/deps/... ./cmd/ykc-deps/...
-
-# 需人類明確執行：安裝與 rustc 1.98 相容性應先在 CI/OCI admission 驗證。
-deps-setup:
-	cargo install cargo-audit --version "$(CARGO_AUDIT_VERSION)" --locked
-	cargo install cargo-deny --version "$(CARGO_DENY_VERSION)" --locked
-	@cargo audit --version
-	@cargo deny --version
-
-# ── T-20 L2 capability pack（pure-Go Rust/Go structure evidence）────
-# grammar_subset tags 只嵌 Rust + Go blob，避免把 206 grammar 塞入 worker binary。
-structure:
-	mkdir -p bin
-	go build -tags="$(STRUCTURE_TAGS)" -o bin/ykc-structure ./cmd/ykc-structure
-	@echo "ykc-structure built (Rust+Go grammar subset): bin/ykc-structure"
-
-structure-test:
-	go test -tags="$(STRUCTURE_TAGS)" ./internal/structure/... ./cmd/ykc-structure/...
-
-# Admission guard: syntax grammars belong to the optional worker, never ykc T0 core.
-thin-core-test:
-	@! go list -deps ./cmd/ykc-smoke | grep -qx 'github.com/odvcencio/gotreesitter' || { echo "T0 core unexpectedly links gotreesitter"; exit 1; }
-	@echo "thin core dependency boundary OK"
-
-# Rust+Go subset currently budgets <= 25 MiB; all grammar blobs are deliberately excluded.
-structure-size: structure
-	@bytes=$$(wc -c < bin/ykc-structure); test "$$bytes" -le 26214400 || { echo "ykc-structure exceeds 25 MiB: $$bytes"; exit 1; }; echo "ykc-structure bytes=$$bytes (<=25 MiB)"
-
-# Build content-addressed local development packs. They are optional outputs;
-# ykc-core itself remains the small T0 binary and only runs packs after manifest verification.
-pack-deps: cap deps
-	@audit="$$(command -v cargo-audit || true)"; deny="$$(command -v cargo-deny || true)"; \
-	  test -n "$$audit" && test -n "$$deny" || { echo "需要 pinned cargo tools；先執行 make deps-setup"; exit 2; }; \
-	  root="packs/deps/0.1.0/$$(go env GOOS)-$$(go env GOARCH)"; \
-	  rm -rf "$$root"; mkdir -p "$$root/bin" "$$root/tools"; cp bin/ykc-deps "$$root/bin/ykc-deps"; cp "$$audit" "$$root/tools/cargo-audit"; cp "$$deny" "$$root/tools/cargo-deny"; \
-	  bin/ykc-cap manifest -root "$$root" -id deps -version 0.1.0 -entry bin/ykc-deps -artifacts tools/cargo-audit,tools/cargo-deny -tools cargo-audit@$(CARGO_AUDIT_VERSION),cargo-deny@$(CARGO_DENY_VERSION) -capabilities dependency.scan; \
-	  echo "deps pack: $$root"
-
-pack-structure: cap structure
-	@root="packs/structure-rustgo/0.1.0/$$(go env GOOS)-$$(go env GOARCH)"; \
-	  rm -rf "$$root"; mkdir -p "$$root/bin"; cp bin/ykc-structure "$$root/bin/ykc-structure"; \
-	  bin/ykc-cap manifest -root "$$root" -id structure-rustgo -version 0.1.0 -entry bin/ykc-structure -capabilities structure.scan; \
-	  echo "structure pack: $$root"
-
-capability-test: deps-test structure-test thin-core-test structure-size
 
 # ── 知識庫 + 代理上下文引擎（YKC_15）──────────────────────────────
 # 嵌入式唯讀知識庫：518 條 rustc 錯誤碼（含錯誤範例+正解）、54 條規則抽象、
@@ -301,16 +234,35 @@ know-serve:
 	./bin/ykc-know serve -addr 127.0.0.1 -port 8090
 
 health: lint binaries
-	@echo "== go build =="; go build ./...
-	@echo "== smoke =="; ./bin/ykc -dir ./demo-rust-cli -claims ./claims.json -key ykc-dev-key >/dev/null 2>&1 && echo "  smoke OK" || echo "  smoke FAIL"
-	@echo "== judge gate =="; ./bin/ykc-judge -dir ./demo-broken-cli -gate >/dev/null 2>&1 && echo "  judge OK" || echo "  judge FAIL"
-	@echo "== ledger verify =="; ./bin/ykc-judge -dir ./demo-broken-cli -verify >/dev/null 2>&1 && echo "  ledger OK" || echo "  ledger FAIL"
+	@set -eu; \
+	for tool in cargo rustc; do \
+		command -v "$$tool" >/dev/null 2>&1 || { echo "health prerequisite missing: $$tool (install Rust or run make setup)" >&2; exit 127; }; \
+	done; \
+	echo "== go build =="; go build ./...; \
+	echo "== smoke =="; \
+	if ./bin/ykc -dir ./demo-rust-cli -claims ./claims.json -key ykc-dev-key >/dev/null 2>&1; then echo "  smoke OK"; else echo "  smoke FAIL" >&2; exit 1; fi; \
+	echo "== judge gate =="; \
+	if ./bin/ykc-judge -dir ./demo-broken-cli -gate >/dev/null 2>&1; then echo "  judge OK"; else echo "  judge FAIL" >&2; exit 1; fi; \
+	echo "== ledger verify =="; \
+	if ./bin/ykc-judge -dir ./demo-broken-cli -verify >/dev/null 2>&1; then echo "  ledger OK"; else echo "  ledger FAIL" >&2; exit 1; fi
 
 image:
-	podman build -t ykc:latest -f deploy/Dockerfile . || docker build -t ykc:latest -f deploy/Dockerfile .
+	@if command -v podman >/dev/null 2>&1; then \
+		podman build -t ykc:latest -f deploy/Dockerfile .; \
+	elif command -v docker >/dev/null 2>&1; then \
+		docker build -t ykc:latest -f deploy/Dockerfile .; \
+	else \
+		echo "找不到 podman 或 docker；請先安裝 OCI container engine" >&2; exit 127; \
+	fi
 
 up:
-	podman compose -f deploy/compose.yaml up || docker compose -f deploy/compose.yaml up
+	@if command -v podman >/dev/null 2>&1; then \
+		podman compose -f deploy/compose.yaml up; \
+	elif command -v docker >/dev/null 2>&1; then \
+		docker compose -f deploy/compose.yaml up; \
+	else \
+		echo "找不到 podman 或 docker；請先安裝 OCI container engine" >&2; exit 127; \
+	fi
 
 clean:
 	rm -rf bin demo-rust-cli/target demo-rust-cli/.ykc/precompile demo-semantic-cli/.ykc/precompile demo-broken-cli/.ykc/precompile

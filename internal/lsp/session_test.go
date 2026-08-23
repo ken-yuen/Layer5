@@ -93,6 +93,19 @@ func TestReadMessageRejectsMissingLength(t *testing.T) {
 	}
 }
 
+func TestReadMessageRejectsMalformedOrOversizedLength(t *testing.T) {
+	for _, header := range []string{
+		"Content-Length: nope\r\n\r\n",
+		"Content-Length: -1\r\n\r\n",
+		"Content-Length: 0\r\n\r\n",
+		"Content-Length: 16777217\r\n\r\n",
+	} {
+		if _, err := ReadMessage(bufio.NewReader(strings.NewReader(header))); err == nil {
+			t.Fatalf("header %q should be rejected", header)
+		}
+	}
+}
+
 // writeRustProject 建立含 Cargo.toml 的假專案與 .rs 檔。
 func writeRustProject(t *testing.T, dirty bool) (root, file string) {
 	t.Helper()

@@ -59,6 +59,9 @@ func DefaultRustSmoke(root string) []CommandSpec {
 }
 
 func (r Runner) Run(ctx context.Context, specs []CommandSpec) (Report, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if len(specs) == 0 {
 		return Report{}, errors.New("at least one smoke command is required")
 	}

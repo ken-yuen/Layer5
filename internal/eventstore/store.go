@@ -2,6 +2,7 @@
 package eventstore
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -53,8 +54,16 @@ func (s *Store) Append(e domain.Envelope) (domain.Envelope, error) {
 	}
 	day := e.At.UTC().Format("20060102")
 	path := filepath.Join(s.Dir, day, sanitizeFileName(e.ID)+".json")
-	if _, err := os.Stat(path); err == nil {
+	if existingBytes, readErr := os.ReadFile(path); readErr == nil {
+		var existing domain.Envelope
+		if err := json.Unmarshal(existingBytes, &existing); err == nil && existing.ID == e.ID && bytes.Equal(existingBytes, append(b, '\n')) {
+			// Bridge retries after a ledger lock must be idempotent: the durable
+			// event outbox may already contain this exact envelope.
+			return existing, nil
+		}
 		return domain.Envelope{}, fmt.Errorf("event id collision: %s", e.ID)
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return domain.Envelope{}, readErr
 	}
 	if err := atomicfile.WriteFileSync(path, append(b, '\n'), 0o644); err != nil {
 		return domain.Envelope{}, err

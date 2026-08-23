@@ -58,6 +58,22 @@ type ReceiptView struct {
 	Signature string `json:"signature"`
 }
 
+// PrecompileView is the bounded report summary shown by the observer. The
+// complete report remains in .ykc/precompile/report.json and the ledger event.
+type PrecompileView struct {
+	Overall     string `json:"overall"`
+	Trigger     string `json:"trigger,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	Sandbox     string `json:"sandbox,omitempty"`
+	Available   bool   `json:"sandbox_available"`
+	Isolation   string `json:"isolation,omitempty"`
+	Stages      int    `json:"stages"`
+	ErrorCount  int    `json:"error_count"`
+	WarnCount   int    `json:"warning_count"`
+	Unsupported int    `json:"unsupported"`
+	ReportPath  string `json:"report_path"`
+}
+
 // ProjectState 是單一專案的聚合狀態。
 type ProjectState struct {
 	Name               string              `json:"name"`
@@ -71,6 +87,7 @@ type ProjectState struct {
 	MissingProjections int                 `json:"missing_projections"`
 	LastFact           *FactView           `json:"last_fact,omitempty"`
 	Receipt            *ReceiptView        `json:"receipt,omitempty"`
+	Precompile         *PrecompileView     `json:"precompile,omitempty"`
 	Verdicts           []VerdictView       `json:"verdicts"`
 	TrustEvents        []TrustEventView    `json:"trust_events"`
 	Agents             map[string]int      `json:"agents"` // agentID → 信任等級 0..3
@@ -90,12 +107,25 @@ type GlobalState struct {
 	Projects           []ProjectState `json:"projects"`
 }
 
+// normalizeDiscoveredDir makes every discovery surface use one canonical path.
+// EvalSymlinks is best effort because a not-yet-created root should still be
+// representable; callers only admit a project after its marker file exists.
+func normalizeDiscoveredDir(dir string) string {
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
+	return filepath.Clean(dir)
+}
+
 // discoverProjects 找出含 .ykc/ledger.jsonl 的專案（根 + 至多 depth 層子目錄）。
 func discoverProjects(root string, extra []string, depth int) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(d string) {
-		d = filepath.Clean(d)
+		d = normalizeDiscoveredDir(d)
 		if seen[d] {
 			return
 		}
@@ -118,6 +148,10 @@ func discoverProjects(root string, extra []string, depth int) []string {
 	return out
 }
 
+func ignoredDiscoveryDir(name string) bool {
+	return strings.HasPrefix(name, ".") || name == "target"
+}
+
 // walkDepth 深度優先遍歷至多 depth 層子目錄（depth 0 = 僅根，不進子目錄）。
 func walkDepth(root string, depth int, fn func(string)) {
 	if depth <= 0 {
@@ -128,7 +162,7 @@ func walkDepth(root string, depth int, fn func(string)) {
 		return
 	}
 	for _, e := range ents {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+		if !e.IsDir() || ignoredDiscoveryDir(e.Name()) {
 			continue
 		}
 		d := filepath.Join(root, e.Name())
@@ -157,6 +191,52 @@ func readReceipt(dir string) *ReceiptView {
 	return nil
 }
 
+// readPrecompile only projects a small status summary into /api/state. It does
+// not copy compiler output into the hot state response.
+func readPrecompile(dir string) *PrecompileView {
+	path := filepath.Join(dir, ".ykc", "precompile", "report.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var r struct {
+		Overall   string `json:"overall"`
+		Trigger   string `json:"trigger"`
+		CreatedAt string `json:"created_at"`
+		Sandbox   struct {
+			Backend   string `json:"backend"`
+			Available bool   `json:"available"`
+			Trust     string `json:"trust"`
+		} `json:"sandbox"`
+		Unsupported []json.RawMessage `json:"unsupported"`
+		Stages      []struct {
+			Diagnostics struct {
+				ErrorCount   int `json:"error_count"`
+				WarningCount int `json:"warning_count"`
+			} `json:"diagnostics"`
+		} `json:"stages"`
+	}
+	if json.Unmarshal(b, &r) != nil || r.Overall == "" {
+		return nil
+	}
+	view := &PrecompileView{
+		Overall:     r.Overall,
+		Trigger:     r.Trigger,
+		CreatedAt:   r.CreatedAt,
+		Sandbox:     r.Sandbox.Backend,
+		Available:   r.Sandbox.Available,
+		Isolation:   r.Sandbox.Trust,
+		Stages:      len(r.Stages),
+		Unsupported: len(r.Unsupported),
+		ReportPath:  path,
+	}
+	for _, stage := range r.Stages {
+		view.ErrorCount += stage.Diagnostics.ErrorCount
+		view.WarnCount += stage.Diagnostics.WarningCount
+	}
+	return view
+}
+
 // maxL5Explain 是面板展示的 L5 解釋文本上限（完整文本以 sha256 對賬帳本）。
 const maxL5Explain = 64 * 1024
 
@@ -165,12 +245,13 @@ const maxL5Explain = 64 * 1024
 // 快取鍵 = (帳本 mtime, 帳本 size, 事件檔數)：帳本 append-only，
 // 三者不變 ⇒ 狀態必然不變，直接回傳快取（零重讀）。
 type stateKey struct {
-	ledgerModTime time.Time
-	ledgerSize    int64
-	anchorModTime time.Time // 專案外 head anchor 變動也必須失效快取
-	anchorSize    int64
-	eventFiles    int
-	l5ModTime     time.Time // L5 report.json mtime（零值 = 不存在）
+	ledgerModTime     time.Time
+	ledgerSize        int64
+	anchorModTime     time.Time // 專案外 head anchor 變動也必須失效快取
+	anchorSize        int64
+	eventFiles        int
+	l5ModTime         time.Time // L5 report.json mtime（零值 = 不存在）
+	precompileModTime time.Time // active precompile report mtime
 }
 
 type stateCacheEntry struct {
@@ -198,6 +279,9 @@ func computeStateKey(dir string) (stateKey, bool) {
 	// L5 報告獨立於帳本更新/清除（如 RemoveReport 路徑），mtime 入鍵防陳舊快取
 	if l5st, err := os.Stat(filepath.Join(dir, ".ykc", "l5", "report.json")); err == nil {
 		key.l5ModTime = l5st.ModTime()
+	}
+	if pcst, err := os.Stat(filepath.Join(dir, ".ykc", "precompile", "report.json")); err == nil {
+		key.precompileModTime = pcst.ModTime()
 	}
 	return key, true
 }
@@ -295,6 +379,7 @@ func computeProjectState(dir string) ProjectState {
 		ps.MissingProjections = ps.EventCount - ps.ProjectedEvents
 	}
 	ps.Receipt = readReceipt(dir)
+	ps.Precompile = readPrecompile(dir)
 	ps.L5 = borrow.ReadReport(dir, maxL5Explain)
 	return ps
 }
@@ -320,7 +405,7 @@ func DiscoverCargoProjects(root string, extra []string, depth int) []string {
 	seen := map[string]bool{}
 	var out []string
 	add := func(d string) {
-		d = filepath.Clean(d)
+		d = normalizeDiscoveredDir(d)
 		if seen[d] {
 			return
 		}
@@ -343,20 +428,53 @@ func DiscoverCargoProjects(root string, extra []string, depth int) []string {
 	return out
 }
 
+func resolveObservedProject(root string, extra []string, depth int, requested string) string {
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return ""
+	}
+	projects := discoverProjects(root, extra, depth)
+	cands := []string{}
+	if abs, err := filepath.Abs(requested); err == nil {
+		cands = append(cands, normalizeDiscoveredDir(abs))
+	}
+	if !filepath.IsAbs(requested) {
+		cands = append(cands, normalizeDiscoveredDir(filepath.Join(root, requested)))
+	}
+	for _, candidate := range cands {
+		for _, project := range projects {
+			if project == candidate {
+				return project
+			}
+		}
+	}
+	// A basename is a convenience for the dashboard, but only when it is
+	// unambiguous. Never select the first same-named project arbitrarily.
+	var byBase string
+	for _, project := range projects {
+		if filepath.Base(project) != requested {
+			continue
+		}
+		if byBase != "" {
+			return ""
+		}
+		byBase = project
+	}
+	return byBase
+}
+
 func rawHandler(root string, extra []string, depth int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
 		dir := r.URL.Query().Get("project")
 		if dir == "" {
 			http.Error(w, "缺少 ?project= 參數", http.StatusBadRequest)
 			return
 		}
-		resolved := ""
-		for _, d := range discoverProjects(root, extra, depth) {
-			if d == dir || filepath.Base(d) == dir {
-				resolved = d
-				break
-			}
-		}
+		resolved := resolveObservedProject(root, extra, depth, dir)
 		if resolved == "" {
 			http.Error(w, "找不到專案", http.StatusNotFound)
 			return
@@ -367,6 +485,9 @@ func rawHandler(root string, extra []string, depth int) http.HandlerFunc {
 		out := map[string]any{"dir": resolved, "facts": facts, "anchor": anchor}
 		if rc := readReceipt(resolved); rc != nil {
 			out["receipt"] = rc
+		}
+		if pc := readPrecompile(resolved); pc != nil {
+			out["precompile"] = pc
 		}
 		_ = json.NewEncoder(w).Encode(out)
 	}

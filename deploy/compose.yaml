@@ -10,16 +10,26 @@ services:
     image: ykc:latest
     working_dir: /workspace
     volumes:
-      # 受測專案（唯讀掛載，裁判不篡改使用者代碼）
+      # 受測專案原始碼（唯讀掛載，裁判不篡改使用者代碼）
       - ../demo-rust-cli:/workspace/project:ro
-      # 收據輸出目錄（可寫）
+      # cargo build 的產物另掛可寫，避免要求原始碼掛載可寫。
+      - ./cargo-target:/workspace/project/target:rw
+      # 收據輸出目錄（可寫；由 -receipt 明確導向，不寫回原始碼）
       - ./receipts:/workspace/receipts:rw
+    environment:
+      CARGO_HOME: /tmp/cargo-home
+      CARGO_TARGET_DIR: /workspace/project/target
+      HOME: /tmp/home
+    tmpfs:
+      - /tmp
     command:
       - "-dir"
       - "/workspace/project"
+      - "-receipt"
+      - "/workspace/receipts/ykc-receipt.json"
       - "-key"
       - "${YKC_KEY:-ykc-dev-key}"
-    # 沙盒加固：非 root、唯讀根檔系統、最小能力集
+    # 沙盒加固：唯讀根檔系統、最小能力集、禁止新增特權
     read_only: true
     security_opt:
       - no-new-privileges:true

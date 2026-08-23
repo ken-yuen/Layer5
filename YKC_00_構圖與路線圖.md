@@ -177,6 +177,7 @@
 | T-29 | KB release manifest + replay + diff（來源 URL/ETag/SHA、dataset/blob 指紋；`ykc-know replay` byte-identical 驗證；內容／Refs 差異） | T-27 | ✅ | 2026-08-23 |
 | T-30 | 知識面體驗 MVP（tier-1 60 張繁中 error 摘要、Trust Console `/api/know` 搜尋、可選私有跨程序 context cache） | T-27,T-29 | ✅ | 2026-08-23 |
 | T-31 | Capability pack core（manifest SHA 驗證、local JSONL worker protocol、Core-only event/anchored-ledger composition、thin/pack size admission） | T-24 | ✅ | 2026-08-23 |
+| T-32 | 主動 Rust 預譯（serve 啟動全掃；.rs/Cargo.toml/Cargo.lock 變更自動觸發；project-scoped single-flight + pending coalescing；sandbox fail-closed；report/ledger/panel 狀態） | T-25,T-06 | ✅ | 2026-08-23 |
 
 ---
 
@@ -232,7 +233,8 @@
 | D35 | Persistent cache | 跨程序快取是非權威、明確 opt-in 的效能層；資料版本綁定、0600、原子寫入和 corruption-as-miss 是硬底線。 |
 | D36 | Capability packs | 不用 Go plugin；Core + 獨立 worker binary + SHA-verified manifest + local JSONL protocol。只有 Core 可將 worker facts 包裝並寫入 anchored ledger。 |
 | D37 | L1/L2 體積邊界 | cargo tools、RustSec DB、grammar blobs 均屬可選 pack；T0 ykc 不可連結 gotreesitter。Rust+Go grammar subset 必須有 binary size admission。 |
+| D38 | 主動預譯 | rustc/cargo 預譯由 `ykc serve` 主動執行：啟動先掃全部已發現專案，Rust 工作區檔案變更後去抖重跑；同專案單飛、最新變更 pending 合併；預設只走 sandbox，無隔離即 unsupported，native 必須明示。完整 report 同時落 `.ykc` 與 `precompile.report` 事件。 |
 
 ---
 
-*版次：v10.5（2026-08-23：T-31 ✅；T-19/T-20 MVP 🟨；以 capability pack 解耦 L1 cargo facts 與 L2 pure-Go AST，並保持 T0 細小；見 YKC_21）。*
+*版次：v10.6（2026-08-23：T-32 主動 Rust 預譯 ✅；T-31 ✅；T-19/T-20 MVP 🟨；以 capability pack 解耦 L1 cargo facts 與 L2 pure-Go AST，並保持 T0 細小；主動預譯見 YKC_24）。*

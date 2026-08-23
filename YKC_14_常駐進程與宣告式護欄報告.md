@@ -14,7 +14,7 @@
 | `internal/guardrail/dl.go` | 事實抽取器（時間/epoch/新鮮度→ground facts）＋ `EvaluateClaimWithRules`（附加規則入口）＋ violation/5→Violation 映射（規則宣告序穩定排序） | ~180 |
 | `internal/watch/` | 監看層：Linux inotify（stdlib syscall，零依賴）/ 他平台 stat 輪詢；遞迴＋新目錄動態加 watch＋競態補掃；去抖器（最後操作勝、create+remove 抵銷、remove+create→write）；過濾器（.rs/.toml/.lock；**必排 .ykc 防回環**） | ~700 |
 | `internal/panel/` | panel 由 cmd/ykc-atom 同級之 cmd/ykc-panel **提升為 internal 套件**（ykc-panel 與 ykc-serve 共用唯一實作；BuildMux/BuildMuxWith/Options/Authed/WriteJSON/EnsureToolchainPath 匯出；JobManager 匯出 ValidateProject/ValidateClaims） | 遷移+改造 |
-| `internal/serve/` | 常駐核心：專案發現→bridges→watcher→panel mux＋`/api/claims`、`/api/watch`、`/api/rules`；事件循環（批次→按專案分組→路徑排序→`file.change` 入帳本）；ErrLocked 指數退避重試（與 judge 子行程共用帳本）；`-auto-judge` 單飛觸發；SIGTERM 優雅退出 | ~560 |
+| `internal/serve/` | 常駐核心：專案發現→bridges→watcher→panel mux＋`/api/claims`、`/api/watch`、`/api/rules`；事件循環（批次→按專案分組→路徑排序→`file.change` 入帳本）；主動 Rust 預譯（啟動全掃、變更重跑、single-flight/coalescing、report/ledger 投影）；ErrLocked 指數退避重試（與 judge 子行程共用帳本）；`-auto-judge` 單飛觸發；SIGTERM 優雅退出 | ~800 |
 | `cmd/ykc-serve/` | 薄殼（旗標解析＋signal.NotifyContext） | ~100 |
 | `domain` | 新事件種類 `file.change`（FileChangeBatch payload；附加式，不破壞既有事件流） | +20 |
 

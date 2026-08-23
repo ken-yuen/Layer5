@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"ykc/internal/atomicfile"
 	"ykc/internal/domain"
 	"ykc/internal/sandbox"
 )
@@ -71,6 +72,7 @@ type ParseResult struct {
 	Messages     []Diagnostic
 	RawJSONLines int
 	NonJSONLines int
+	ParseError   string // non-empty when the bounded scanner could not consume the stream
 }
 
 type Diagnostic struct {
@@ -91,9 +93,12 @@ type UnsupportedReason struct {
 }
 
 type Report struct {
-	ProjectDir   string               `json:"project_dir"`
-	ManifestPath string               `json:"manifest_path,omitempty"`
-	CreatedAt    time.Time            `json:"created_at"`
+	ProjectDir   string    `json:"project_dir"`
+	ManifestPath string    `json:"manifest_path,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	// Trigger identifies why an automatic report was requested (for example
+	// startup or file-change). The standalone CLI leaves it empty.
+	Trigger      string               `json:"trigger,omitempty"`
 	Overall      Status               `json:"overall"`
 	Sandbox      sandbox.Capability   `json:"sandbox"`
 	Capabilities []sandbox.Capability `json:"capabilities,omitempty"`
@@ -232,7 +237,28 @@ func runCargoPlan(ctx context.Context, opt Options, rep *Report) {
 }
 
 func runSingleRustc(ctx context.Context, opt Options, rep *Report, file string) {
-	out := filepath.Join(os.TempDir(), "ykc-rustc-precompile.rmeta")
+	// The automatic coordinator can precompile multiple source-only projects in
+	// parallel. Reserve a unique output and always remove it: native execution
+	// otherwise leaves .rmeta files in the host temp directory, while bwrap and
+	// container backends may place their copy in an isolated /tmp.
+	f, err := os.CreateTemp("", "ykc-rustc-precompile-*.rmeta")
+	if err != nil {
+		rep.Stages = append(rep.Stages, Stage{
+			Name: "rustc-single-file-metadata", Status: StatusFailed,
+			Notes: []string{"create temporary rustc output: " + err.Error()},
+		})
+		return
+	}
+	out := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(out)
+		rep.Stages = append(rep.Stages, Stage{
+			Name: "rustc-single-file-metadata", Status: StatusFailed,
+			Notes: []string{"close temporary rustc output: " + err.Error()},
+		})
+		return
+	}
+	defer os.Remove(out)
 	rel, _ := filepath.Rel(opt.ProjectDir, file)
 	runStage(ctx, opt, rep, "rustc-single-file-metadata", sandbox.NetworkNone, "rustc", "--edition=2021", "--error-format=json", "--emit=metadata", "-o", out, rel)
 }
@@ -248,7 +274,10 @@ func runStage(ctx context.Context, opt Options, rep *Report, name string, networ
 	stage.Messages = parsed.Messages
 	stage.RawJSONLines = parsed.RawJSONLines
 	stage.NonJSONLines = parsed.NonJSONLines
-	if res.Succeeded() && stage.Diagnostics.ErrorCount == 0 {
+	if parsed.ParseError != "" {
+		stage.Notes = append(stage.Notes, "parse diagnostics: "+parsed.ParseError)
+	}
+	if res.Succeeded() && stage.Diagnostics.ErrorCount == 0 && parsed.ParseError == "" {
 		stage.Status = StatusPassed
 	} else {
 		stage.Status = StatusFailed
@@ -290,6 +319,9 @@ func ParseDiagnostics(text string) ParseResult {
 				out.Messages = append(out.Messages, d)
 			}
 		}
+	}
+	if err := sc.Err(); err != nil {
+		out.ParseError = err.Error()
 	}
 	// build-blocking = 所有 error 級診斷（rustc 語境）
 	out.Summary.BuildBlockingCount = out.Summary.ErrorCount
@@ -449,5 +481,5 @@ func WriteReport(path string, rep Report) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(b, '\n'), 0o644)
+	return atomicfile.WriteFileSync(path, append(b, '\n'), 0o644)
 }

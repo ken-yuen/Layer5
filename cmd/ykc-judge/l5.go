@@ -94,7 +94,7 @@ func l5Explain(dir string, remaining []Error, led *ledger.Ledger) string {
 	text := b.String()
 
 	// ④ 帳本事實（解釋可審計; reduced 記錄真實歸約命中數——量測的基礎數據）
-	appendFact(led, "borrow.analysis", "ykc-judge", map[string]any{
+	mustAppendFact(led, "borrow.analysis", "ykc-judge", map[string]any{
 		"codes":              codes,
 		"l5_available":       l5OK,
 		"reduced":            reducedCount,

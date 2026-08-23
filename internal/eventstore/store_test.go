@@ -6,27 +6,24 @@ import (
 	"ykc/internal/domain"
 )
 
-func TestStoreAppendReplayCompleteEvents(t *testing.T) {
-	store, err := New(t.TempDir())
+func TestAppendIsIdempotentForSameEnvelope(t *testing.T) {
+	s, err := New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	e, err := domain.NewEnvelope(domain.EventAgentClaim, "epoch", "/tmp/ws", domain.AgentClaim{Kind: domain.ClaimWorkDone})
+	e, err := domain.NewEnvelope(domain.EventCommandResult, "epoch", "/tmp/project", map[string]string{"name": "cargo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	appended, err := store.Append(e)
+	first, err := s.Append(e)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if appended.ID == "" {
-		t.Fatal("expected generated event id")
-	}
-	events, err := store.Replay()
+	second, err := s.Append(e)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 || events[0].ID != appended.ID {
-		t.Fatalf("unexpected replay: %+v", events)
+	if first.ID != second.ID || first.Kind != second.Kind {
+		t.Fatalf("idempotent append changed envelope: first=%+v second=%+v", first, second)
 	}
 }

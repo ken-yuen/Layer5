@@ -39,25 +39,62 @@ func Send(w io.Writer, m Msg) error {
 	return err
 }
 
+// MaxContentLength bounds one LSP frame. A rust-analyzer process is local, but
+// treating its stdout as untrusted input prevents a malformed header from
+// turning into a negative-length panic or an unbounded allocation.
+const MaxContentLength = 16 * 1024 * 1024
+
+// maxHeaderLine is deliberately much smaller than MaxContentLength: headers
+// contain metadata only and must not be allowed to grow without a bound.
+const maxHeaderLine = 8 * 1024
+
+func readHeaderLine(r *bufio.Reader) (string, error) {
+	var line []byte
+	for {
+		part, prefix, err := r.ReadLine()
+		if err != nil {
+			return "", err
+		}
+		if len(line)+len(part) > maxHeaderLine {
+			return "", fmt.Errorf("lsp header line exceeds %d bytes", maxHeaderLine)
+		}
+		line = append(line, part...)
+		if !prefix {
+			return strings.TrimRight(string(line), "\r"), nil
+		}
+	}
+}
+
 // ReadMessage 依 Content-Length 讀出完整一則 LSP 訊息。
 func ReadMessage(r *bufio.Reader) ([]byte, error) {
 	contentLen := 0
+	seenLength := false
 	for {
-		line, err := r.ReadString('\n')
+		line, err := readHeaderLine(r)
 		if err != nil {
 			return nil, err
 		}
-		line = strings.TrimRight(line, "\r\n")
 		if line == "" {
 			break
 		}
 		lower := strings.ToLower(line)
 		if strings.HasPrefix(lower, "content-length:") {
+			if seenLength {
+				return nil, fmt.Errorf("duplicate content-length")
+			}
+			seenLength = true
 			v := strings.TrimSpace(line[len("content-length:"):])
-			contentLen, _ = strconv.Atoi(v)
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || n <= 0 {
+				return nil, fmt.Errorf("invalid content-length %q", v)
+			}
+			if n > MaxContentLength {
+				return nil, fmt.Errorf("content-length %d exceeds %d", n, MaxContentLength)
+			}
+			contentLen = int(n)
 		}
 	}
-	if contentLen <= 0 {
+	if !seenLength || contentLen <= 0 {
 		return nil, fmt.Errorf("no content-length")
 	}
 	buf := make([]byte, contentLen)

@@ -7,6 +7,7 @@
 package watch
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -85,10 +86,11 @@ func (p *pollBackend) run() {
 		roots := append([]string(nil), p.roots...)
 		p.mu.Unlock()
 		next := map[string]fileStat{}
+		incomplete := false
 		for _, root := range roots {
-			_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 				if err != nil {
-					return nil // 容錯：單點錯誤不中止輪詢
+					return err // report the incomplete snapshot; next tick retries
 				}
 				name := d.Name()
 				if d.IsDir() {
@@ -107,6 +109,15 @@ func (p *pollBackend) run() {
 				next[path] = fileStat{size: st.Size(), mtime: st.ModTime().UnixNano()}
 				return nil
 			})
+			if walkErr != nil {
+				incomplete = true
+				p.reportError(fmt.Errorf("poll walk %s: %w", root, walkErr))
+			}
+		}
+		if incomplete {
+			// Never diff a partial snapshot: doing so would manufacture remove
+			// events for files hidden by a transient permission/I/O error.
+			continue
 		}
 		if first {
 			first = false
@@ -145,6 +156,16 @@ func (p *pollBackend) exclDir(name string) bool {
 		}
 	}
 	return p.exclDirs[name]
+}
+
+func (p *pollBackend) reportError(err error) {
+	if err == nil {
+		return
+	}
+	select {
+	case p.errors <- err:
+	default:
+	}
 }
 
 func (p *pollBackend) emit(e Event) {

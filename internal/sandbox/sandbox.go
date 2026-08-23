@@ -20,6 +20,7 @@ import (
 type Backend string
 
 const (
+	probeTimeout               = 2 * time.Second
 	BackendAuto        Backend = "auto"
 	BackendNative      Backend = "native"
 	BackendBwrap       Backend = "bwrap"
@@ -139,6 +140,9 @@ func Select(cfg Config) (Capability, []Capability) {
 }
 
 func Run(ctx context.Context, cfg Config, command string, args ...string) Result {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 2 * time.Minute
 	}
@@ -231,7 +235,10 @@ func materializeCommand(cfg Config, backend Backend, command string, args []stri
 }
 
 func containerCommand(engine string, runsc bool, cfg Config, command string, args []string) (string, []string, string) {
-	all := []string{"run", "--rm", "--workdir", "/work", "--volume", cfg.ProjectDir + ":/work:rw", "--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())}
+	all := []string{"run", "--rm", "--workdir", "/work", "--volume", cfg.ProjectDir + ":/work:rw"}
+	if user := containerUser(); user != "" {
+		all = append(all, "--user", user)
+	}
 	if runsc {
 		all = append(all, "--runtime=runsc")
 	}
@@ -351,7 +358,9 @@ func probeDockerRunsc() Capability {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return Capability{Backend: BackendDockerRunsc, Available: false, Trust: TrustStrong, Reason: "docker not found"}
 	}
-	out, err := exec.Command("docker", "info", "--format", "{{json .Runtimes}}").CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "docker", "info", "--format", "{{json .Runtimes}}").CombinedOutput()
 	if err != nil {
 		return Capability{Backend: BackendDockerRunsc, Available: false, Trust: TrustStrong, Reason: "docker info failed: " + strings.TrimSpace(string(out))}
 	}
@@ -375,7 +384,9 @@ func probeBwrap() Capability {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		return Capability{Backend: BackendBwrap, Available: false, Trust: TrustModerate, Reason: "bwrap not found"}
 	}
-	cmd := exec.Command("bwrap", "--ro-bind", "/usr", "/usr", "--", "/usr/bin/true")
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bwrap", "--ro-bind", "/usr", "/usr", "--", "/usr/bin/true")
 	if err := cmd.Run(); err != nil {
 		return Capability{Backend: BackendBwrap, Available: false, Trust: TrustModerate, Reason: "bwrap preflight failed: " + err.Error()}
 	}

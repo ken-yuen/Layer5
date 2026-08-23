@@ -25,10 +25,16 @@ type Watcher struct {
 
 	batchMu sync.Mutex
 	batches chan []Event
-	done    chan struct{}
-	once    sync.Once
+	errors   chan error
+	done     chan struct{}
+	loopDone chan struct{}
+	once     sync.Once
 
 	lastBatch []Event // 最近一次輸出批次（觀察用；有界=1）
+
+	errorMu    sync.Mutex
+	lastError  string
+	errorCount uint64
 }
 
 // NewWatcher 建立並啟動監看器（冪等起點：調用即運行）。
@@ -60,7 +66,9 @@ func NewWatcher(cfg Config) (*Watcher, error) {
 		cfg:     cfg,
 		backend: backend,
 		batches: make(chan []Event, 64),
-		done:    make(chan struct{}),
+		errors:   make(chan error, 16),
+		done:     make(chan struct{}),
+		loopDone: make(chan struct{}),
 	}
 	if starter, ok := backend.(interface{ Start() }); ok {
 		starter.Start()
@@ -82,30 +90,69 @@ func (w *Watcher) LastBatch() []Event {
 	return append([]Event(nil), w.lastBatch...)
 }
 
+// Errors exposes watcher-level errors after they have been recorded. The
+// backend error channel is consumed internally so an overflow cannot silently
+// block the backend; callers may use this stream to trigger a rescan/rebuild.
+func (w *Watcher) Errors() <-chan error { return w.errors }
+
+// LastError returns the most recent backend or watcher queue error and count.
+func (w *Watcher) LastError() (string, uint64) {
+	w.errorMu.Lock()
+	defer w.errorMu.Unlock()
+	return w.lastError, w.errorCount
+}
+
+func (w *Watcher) recordError(err error) {
+	if err == nil {
+		return
+	}
+	w.errorMu.Lock()
+	w.lastError = err.Error()
+	w.errorCount++
+	w.errorMu.Unlock()
+}
+
 // Close 停止監看（冪等）。
 func (w *Watcher) Close() error {
 	w.once.Do(func() {
 		close(w.done)
-		w.backend.Close()
+		_ = w.backend.Close()
 	})
+	<-w.loopDone
 	return nil
 }
 
 func (w *Watcher) loop() {
+	defer close(w.loopDone)
+	defer close(w.batches)
+	defer close(w.errors)
 	deb := NewDebouncer(w.cfg.Debounce, nil)
 	tick := time.NewTicker(20 * time.Millisecond) // 去抖收割頻率（非輪詢間隔）
 	defer tick.Stop()
+	backendErrors := w.backend.Errors()
+	backendEvents := w.backend.Events()
 	for {
 		select {
 		case <-w.done:
 			return
-		case err := <-w.backend.Errors():
-			// 後端錯誤不終止服務；經由批次通道旁路無法表達——記錄於空批次？
-			// 設計決策：錯誤以「僅含一條特殊事件」表達會污染事件語意；
-			// 保持 Errors 通道只被 select 排空（避免後端阻塞），錯誤可觀測性
-			// 由 /api/watch 的 backend 名稱與 pending 數承擔。
-			_ = err
-		case e := <-w.backend.Events():
+		case err, ok := <-backendErrors:
+			if !ok {
+				backendErrors = nil
+				continue
+			}
+			if err == nil {
+				continue
+			}
+			w.recordError(err)
+			select {
+			case w.errors <- err:
+			default:
+			}
+		case e, ok := <-backendEvents:
+			if !ok {
+				backendEvents = nil
+				continue
+			}
 			if w.cfg.Filter.Allow(e.Path, e.IsDir) {
 				deb.Add(e)
 			}
@@ -120,9 +167,21 @@ func (w *Watcher) loop() {
 				w.batchMu.Unlock()
 				select {
 				case w.batches <- batch:
-				default: // 消費端停滯：丟棄最舊策略不可行（channel 無隨機存取）——阻塞會拖垮後端，故丟棄新批並保留 lastBatch 供觀察
+				default:
+					// Keep the event loop non-blocking, but make loss explicit and
+					// observable instead of silently dropping a batch.
+					err := &watcherError{"watcher batch queue overflow: batch dropped"}
+					w.recordError(err)
+					select {
+					case w.errors <- err:
+					default:
+					}
 				}
 			}
 		}
 	}
 }
+
+type watcherError struct{ msg string }
+
+func (e *watcherError) Error() string { return e.msg }

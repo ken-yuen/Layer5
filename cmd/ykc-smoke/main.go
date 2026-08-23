@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"ykc/internal/atomicfile"
 	"ykc/internal/domain"
 	"ykc/internal/rustutil"
 	"ykc/internal/smoke"
@@ -183,6 +184,7 @@ func chainHash(checks []Check) string {
 func main() {
 	dir := flag.String("dir", ".", "Rust 專案目錄")
 	claimsPath := flag.String("claims", "", "代理聲明 JSON 路徑（可選）")
+	receiptPath := flag.String("receipt", "", "收據輸出路徑（預設 <project>/ykc-receipt.json）")
 	key := flag.String("key", "ykc-dev-key", "簽名密鑰")
 	timeout := flag.Duration("timeout", 30*time.Minute, "單條命令超時")
 	flag.Parse()
@@ -195,10 +197,14 @@ func main() {
 	ctx := context.Background()
 
 	// 0. 建置（fail-fast：編譯不過，後續全無意義）
-	buildSpec := smoke.CommandSpec{ID: "cargo-build", Class: domain.CommandClassBuild, Name: "cargo", Args: []string{"build", "--quiet"}, WorkDir: *dir}
+	buildSpec := smoke.CommandSpec{ID: "cargo-build", Class: domain.CommandClassBuild, Name: "cargo", Args: []string{"build", "--locked", "--quiet"}, WorkDir: *dir}
 	buildRep, err := (smoke.Runner{FailFast: true, DefaultTimeout: *timeout, MaxOutputBytes: 1 << 20}).Run(ctx, []smoke.CommandSpec{buildSpec})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "smoke runner:", err)
+		os.Exit(1)
+	}
+	if len(buildRep.Results) == 0 {
+		fmt.Fprintln(os.Stderr, "smoke runner: cargo build returned no result")
 		os.Exit(1)
 	}
 	if br := buildRep.Results[0]; !br.Succeeded() {
@@ -206,16 +212,20 @@ func main() {
 		os.Exit(1)
 	}
 	name := rustutil.PackageName(*dir)
+	if name == "" {
+		fmt.Fprintln(os.Stderr, "無法從 Cargo.toml 解析 package name，無法定位產出二進制")
+		os.Exit(1)
+	}
 	bin := filepath.Join(*dir, "target", "debug", name)
 
 	// 1. T0 + T2（不依賴子命令枚舉的批次）
 	specsA := []smoke.CommandSpec{
 		{ID: "T0.version", Class: domain.CommandClassSmoke, Name: bin, Args: []string{"--version"}, WorkDir: *dir},
 		{ID: "T0.help", Class: domain.CommandClassSmoke, Name: bin, Args: []string{"--help"}, WorkDir: *dir},
-		{ID: "T2.test", Class: domain.CommandClassTest, Name: "cargo", Args: []string{"test", "--quiet"}, WorkDir: *dir},
+		{ID: "T2.test", Class: domain.CommandClassTest, Name: "cargo", Args: []string{"test", "--locked", "--quiet"}, WorkDir: *dir},
 	}
 	if ex := firstExample(*dir); ex != "" {
-		specsA = append(specsA, smoke.CommandSpec{ID: "T2.example", Class: domain.CommandClassTest, Name: "cargo", Args: []string{"run", "--quiet", "--example", ex}, WorkDir: *dir})
+		specsA = append(specsA, smoke.CommandSpec{ID: "T2.example", Class: domain.CommandClassTest, Name: "cargo", Args: []string{"run", "--locked", "--quiet", "--example", ex}, WorkDir: *dir})
 	}
 	runSpecs(ctx, specsA)
 
@@ -289,46 +299,57 @@ func main() {
 	// 4. T3：反欺騙 — 聲明 vs 真實介面的確定性比對
 	var verdicts []ClaimVerdict
 	if *claimsPath != "" {
-		if b, err := os.ReadFile(*claimsPath); err == nil {
-			var doc ClaimsDoc
-			if json.Unmarshal(b, &doc) == nil {
-				subSet := map[string]bool{}
-				for _, s := range subs {
-					subSet[s] = true
-				}
-				for _, cl := range doc.Claims {
-					v := ClaimVerdict{ClaimID: cl.ID, Text: cl.Text}
-					switch {
-					case strings.HasPrefix(cl.Feature, "flag:"):
-						f := strings.TrimPrefix(cl.Feature, "flag:")
-						if strings.Contains(helpText, f) {
-							v.Verdict = "verified"
-							v.Evidence = "help 輸出含 " + f
-						} else {
-							v.Verdict = "contradicted"
-							v.Evidence = "help 輸出無 " + f
-						}
-					case strings.HasPrefix(cl.Feature, "subcommand:"):
-						s := strings.TrimPrefix(cl.Feature, "subcommand:")
-						if subSet[s] {
-							v.Verdict = "verified"
-							v.Evidence = "子命令存在: " + s
-						} else {
-							v.Verdict = "contradicted"
-							v.Evidence = "子命令不存在: " + s
-						}
-					default:
-						v.Verdict = "unverifiable"
-						v.Evidence = "未知 feature 型別"
-					}
-					verdicts = append(verdicts, v)
-					st := "fail"
-					if v.Verdict == "verified" {
-						st = "pass"
-					}
-					checks = append(checks, Check{ID: "T3." + v.ClaimID, Kind: "claim", Command: "claim:" + v.Text, Status: st, Note: v.Verdict + " — " + v.Evidence})
-				}
+		b, err := os.ReadFile(*claimsPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "讀取 claims 失敗: %v\n", err)
+			os.Exit(1)
+		}
+		var doc ClaimsDoc
+		if err := json.Unmarshal(b, &doc); err != nil {
+			fmt.Fprintf(os.Stderr, "解析 claims 失敗: %v\n", err)
+			os.Exit(1)
+		}
+		subSet := map[string]bool{}
+		for _, s := range subs {
+			subSet[s] = true
+		}
+		seenClaimIDs := map[string]bool{}
+		for _, cl := range doc.Claims {
+			if strings.TrimSpace(cl.ID) == "" || seenClaimIDs[cl.ID] {
+				fmt.Fprintf(os.Stderr, "claims 含空白或重複 claim id: %q\n", cl.ID)
+				os.Exit(1)
 			}
+			seenClaimIDs[cl.ID] = true
+			v := ClaimVerdict{ClaimID: cl.ID, Text: cl.Text}
+			switch {
+			case strings.HasPrefix(cl.Feature, "flag:"):
+				f := strings.TrimPrefix(cl.Feature, "flag:")
+				if strings.Contains(helpText, f) {
+					v.Verdict = "verified"
+					v.Evidence = "help 輸出含 " + f
+				} else {
+					v.Verdict = "contradicted"
+					v.Evidence = "help 輸出無 " + f
+				}
+			case strings.HasPrefix(cl.Feature, "subcommand:"):
+				s := strings.TrimPrefix(cl.Feature, "subcommand:")
+				if subSet[s] {
+					v.Verdict = "verified"
+					v.Evidence = "子命令存在: " + s
+				} else {
+					v.Verdict = "contradicted"
+					v.Evidence = "子命令不存在: " + s
+				}
+			default:
+				v.Verdict = "unverifiable"
+				v.Evidence = "未知 feature 型別"
+			}
+			verdicts = append(verdicts, v)
+			st := "fail"
+			if v.Verdict == "verified" {
+				st = "pass"
+			}
+			checks = append(checks, Check{ID: "T3." + cl.ID, Kind: "claim", Command: "claim:" + v.Text, Status: st, Note: v.Verdict + " — " + v.Evidence})
 		}
 	}
 
@@ -351,9 +372,19 @@ func main() {
 		Signature: rustutil.Sign(ch, *key),
 		Overall:   overall,
 	}
-	out, _ := json.MarshalIndent(rcpt, "", "  ")
-	outPath := filepath.Join(*dir, "ykc-receipt.json")
-	_ = os.WriteFile(outPath, out, 0o644)
+	out, err := json.MarshalIndent(rcpt, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "序列化收據失敗: %v\n", err)
+		os.Exit(1)
+	}
+	outPath := *receiptPath
+	if outPath == "" {
+		outPath = filepath.Join(*dir, "ykc-receipt.json")
+	}
+	if err := atomicfile.WriteFileSync(outPath, append(out, '\n'), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "寫入收據失敗: %v\n", err)
+		os.Exit(1)
+	}
 
 	// 6. 人讀摘要
 	fmt.Println("=================================================")

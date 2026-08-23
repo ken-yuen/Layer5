@@ -171,6 +171,17 @@ button.logbtn{color:var(--dim);font-size:11px;padding:2px 8px}
 .spin{display:inline-block;width:8px;height:8px;border:2px solid var(--cyan);border-top-color:transparent;
   border-radius:50%;animation:sp .8s linear infinite;vertical-align:0;margin-right:6px}
 @keyframes sp{to{transform:rotate(360deg)}}
+.pcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+.pccard{background:var(--panel);border:1px solid var(--line);padding:10px 12px}
+.pccard .pctop{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.pccard .pcname{font-size:12px;color:var(--text);font-weight:600;word-break:break-all}
+.pccard .pcmeta{color:var(--dim);font-size:10px;margin-top:4px;word-break:break-word}
+.pccard .pcstats{color:var(--faint);font-size:10px;margin-top:6px}
+.pccard.running{border-left:2px solid var(--cyan)}
+.pccard.pending{border-left:2px solid var(--amber)}
+.pccard.passed{border-left:2px solid var(--green)}
+.pccard.failed{border-left:2px solid var(--red)}
+.pccard.unsupported{border-left:2px solid var(--amber)}
 </style>
 </head>
 <body>
@@ -219,12 +230,17 @@ button.logbtn{color:var(--dim);font-size:11px;padding:2px 8px}
   </section>
 
   <section>
-    <div class="sec"><span class="no">01</span><h2>PROJECTS · 專案</h2><div class="rule"></div></div>
+    <div class="sec"><span class="no">01</span><h2>AUTO PRECOMPILE · 主動 Rust 預譯</h2><div class="rule"></div></div>
+    <div id="precompile-feed" class="pcgrid"><div class="empty-note">等待 ykc serve 的主動預譯狀態…</div></div>
+  </section>
+
+  <section>
+    <div class="sec"><span class="no">02</span><h2>PROJECTS · 專案</h2><div class="rule"></div></div>
     <div class="grid" id="projects"></div>
   </section>
 
   <section>
-    <div class="sec"><span class="no">02</span><h2>KNOWLEDGE · 鎖版 Rust 知識面（唯讀）</h2><div class="rule"></div></div>
+    <div class="sec"><span class="no">03</span><h2>KNOWLEDGE · 鎖版 Rust 知識面（唯讀）</h2><div class="rule"></div></div>
     <div class="control">
       <div class="crow">
         <input id="kbquery" placeholder="查詢錯誤碼、訊息或 Rust 片段，例如：cannot borrow as mutable">
@@ -236,12 +252,12 @@ button.logbtn{color:var(--dim);font-size:11px;padding:2px 8px}
   </section>
 
   <section>
-    <div class="sec"><span class="no">03</span><h2>TRUST &amp; VERDICTS · 信任與判決</h2><div class="rule"></div></div>
+    <div class="sec"><span class="no">04</span><h2>TRUST &amp; VERDICTS · 信任與判決</h2><div class="rule"></div></div>
     <div id="verdicts"></div>
   </section>
 
   <section>
-    <div class="sec"><span class="no">04</span><h2>LIVE FACT STREAM · 即時事實流</h2><div class="rule"></div></div>
+    <div class="sec"><span class="no">05</span><h2>LIVE FACT STREAM · 即時事實流</h2><div class="rule"></div></div>
     <div class="feed" id="feed"></div>
   </section>
 
@@ -280,6 +296,45 @@ async function load(){
   }catch(e){
     $("#conn").textContent="連線失敗："+e;
   }
+}
+
+async function loadPrecompile(){
+  const el=$("#precompile-feed");
+  try{
+    const r=await fetch("/api/watch",{cache:"no-store"});
+    if(!r.ok)throw new Error("ykc serve 未啟用");
+    const d=await r.json();
+    renderPrecompile(d);
+  }catch(e){
+    el.innerHTML=`<div class="empty-note">主動預譯狀態只在 <code>ykc serve</code> 中提供；目前未連到常駐監督面。</div>`;
+  }
+}
+
+function renderPrecompile(d){
+  const el=$("#precompile-feed"), list=d.projects||[];
+  if(!list.length){
+    el.innerHTML=`<div class="empty-note">ykc serve 尚未發現 Rust 專案。</div>`;
+    return;
+  }
+  const status=(p)=>{
+    if(p.running)return ["running","<span class=\"spin\"></span>預譯中"];
+    if(p.pending)return ["pending","等待最新變更"];
+    if(p.last_overall==="passed")return ["passed","PASS"];
+    if(p.last_overall==="failed")return ["failed","FAIL"];
+    if(p.last_overall==="unsupported")return ["unsupported","未執行（需 sandbox）"];
+    return ["pending","排隊中"];
+  };
+  el.innerHTML=list.map(p=>{
+    const pc=p.precompile||{}, [cls,label]=status(pc);
+    const sb=pc.last_sandbox||{};
+    const detail=pc.last_overall
+      ? `run #${pc.run_count||0} · ${pc.last_error_count||0} errors · ${pc.last_warning_count||0} warnings`
+      : "尚未完成第一次預譯";
+    const reason=pc.last_error?` · ${esc(pc.last_error).slice(0,180)}`:"";
+    return `<div class="pccard ${cls}"><div class="pctop"><span class="pcname">${esc(p.dir)}</span><span class="st ${cls==="passed"?"T3":cls==="failed"?"T0":cls==="unsupported"?"T2":""}">${label}</span></div>
+      <div class="pcmeta">sandbox=${esc(sb.backend||d.precompile_backend||"auto")} · isolation=${esc(sb.trust||"—")} · trigger=${esc(pc.last_trigger||"—")}</div>
+      <div class="pcstats">${detail}${reason}</div></div>`;
+  }).join("");
 }
 
 function render(s){
@@ -371,6 +426,12 @@ function renderProjects(list){
       ["收據",p.receipt?badge(p.receipt.overall):`<span class="faint">—</span>`],
       ["最近活動",ts2(p.last_fact&&p.last_fact.ts)],
     ];
+    if(p.precompile){
+      const pc=p.precompile;
+      const pcClass=pc.overall==="passed"?"T3":pc.overall==="failed"?"T0":pc.overall==="unsupported"?"T2":"";
+      rows.push(["主動預譯",`<span class="st ${pcClass}">${esc(pc.overall)} · ${pc.stages||0} stages</span>`]);
+      rows.push(["預譯診斷",`${pc.error_count||0} errors · ${pc.warning_count||0} warnings`]);
+    }
     if(p.l5){ // L5 借用幾何: 紅邊 = 修復進度判據（0 = 幾何收斂）
       rows.push(["L5 紅邊",p.l5.red_edges>0
         ?`<span class="st T0">${p.l5.red_edges} 條違法重疊</span>`
@@ -592,6 +653,8 @@ load();
 setInterval(load,2000);
 loadJobs();
 setInterval(loadJobs,1200);
+loadPrecompile();
+setInterval(loadPrecompile,1200);
 loadProjects();
 loadKBState();
 setInterval(loadKBState,30000);

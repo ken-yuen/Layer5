@@ -101,3 +101,12 @@ bin/ykc-precompile -project ./demo-semantic-cli -sandbox native -allow-native -j
 3. **offline compile enforcement**：network-none 階段自動加入 `CARGO_NET_OFFLINE=true`，防止 compile 階段偷偷拉網絡依賴。
 4. **container 權限污染**：docker/podman backend 增加 `--user uid:gid`，避免容器以 root 在 workspace 產生 root-owned files。
 5. **Makefile 回歸缺口**：`verify-all` 現已包含 `ykc-precompile` 健康 demo，防止預編譯功能日後 drift。
+
+## 主動化銜接（T-32，2026-08-23）
+
+本文件原先描述的 `ykc-precompile` 是人類明示執行的 CLI；從 T-32 起，`ykc serve` 將同一 pipeline
+提升為預設的主動能力：啟動時掃描全部已發現專案，並在 `.rs`／`Cargo.toml`／`Cargo.lock` 去抖變更後
+自動重跑。這不改變本文件的 fail-closed sandbox 原則——沒有 runsc/bwrap 時只產生
+`unsupported.sandbox_required` 證據，不會自動 native。單一專案採 single-flight，編譯期間的新變更以
+pending follow-up 合併；report 與 `precompile.report` 事件均可追溯。完整實作與旗標見
+`YKC_24_主動rustc預編譯報告.md`。

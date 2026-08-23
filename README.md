@@ -31,6 +31,7 @@ make image && make up
 - **知識庫（唯讀）**：直接在面板搜尋鎖版 Rust 錯誤碼、規則與文檔閉包；顯示 dataset/rustc metadata、繁中摘要與官方來源，不新增任何控制權。
 - **L1/L2（可選能力包）**：建置 `ykc-deps`／`ykc-structure` 後，面板可顯示依賴 block/warn 與 Rust/Go 結構觀察；核心只讀其已驗證、anchored 的事實，不會把工具鏈或 grammar 塞進 T0。
 - **AI 看（機器可讀）**：`GET /api/state`、`GET /api/raw?project=<dir>`、`GET /api/know/*`、`GET /api/projects`、`GET/POST /api/jobs`、`GET /healthz`。
+- `make panel`／啟動器現在使用 `ykc-serve`，所以 Rust 預譯會主動執行；只想開不監看的薄面板時才直接使用 `ykc-panel`。
 
 ### 面板安全邊界（2026-08 加固）
 
@@ -58,14 +59,32 @@ export YKC_ANCHOR_WITNESS_VERIFY=true       # GET 對賬
 
 ## ykc serve — 常駐進程（YKC_14）
 
-`make serve` 或 `./bin/ykc-serve -root . -port 8080` 啟動單一常駐進程，合併四個 CLI 的**運行時監督面**：
+`make serve`、`make panel` 或 `./bin/ykc-serve -root . -port 8080` 啟動單一常駐進程，合併四個 CLI 的**運行時監督面**：
 
 - **監看**（atom 之職）：inotify（Linux；他平台 stat 輪詢）遞迴監看專案 → 去抖（預設 300ms，最後操作勝）→ `file.change` 事件批次入事實帳本（hash 鏈）；`.ykc`/`target`/`.git` 必排（防自身寫入回環）。
+- **主動預譯**（L4 之職）：啟動時對每個已發現 Rust 專案先跑一次 `cargo metadata → fetch → check --all-targets → test --no-run`；其後每個 `.rs`、`Cargo.toml`、`Cargo.lock` 變更批次自動重跑。單一專案單飛，編譯期間的新變更會合併成下一輪，不會把最新編輯吞掉。完整 report 寫入 `.ykc/precompile/report.json`，並以 `precompile.report` 事件入帳本。
+- **沙盒安全**：主動預譯的 `auto` 順序是 gVisor/runsc → bubblewrap；compile stage 斷網且設 `CARGO_NET_OFFLINE=true`。找不到隔離能力時只記錄 `unsupported.sandbox_required`，不會偷偷 native 執行 `build.rs` 或 proc-macro。可信本地專案如需例外，必須明示 `-precompile-allow-native`。
 - **聲明評估**（guard 之職）：`POST /api/claims {project, kind, text, run_smoke?}` → **宣告式 Datalog 護欄**（規則即數據，`/api/rules` 可審計全文）→ 裁決入帳本 + enforcement 落盤。
 - **觸發**（judge 之職）：`POST /api/jobs`（既有面板任務）或 `-auto-judge`（.rs 變更批次後單飛觸發 ykc-judge）。
-- **面板**（panel 之職）：全部既有端點（/api/state、/api/raw、/api/projects、/api/jobs、/healthz）+ 新增 `/api/watch`（監看狀態）。
+- **面板**（panel 之職）：全部既有端點（/api/state、/api/raw、/api/projects、/api/jobs、/healthz）+ 新增 `/api/watch`（監看與主動預譯狀態）。
 - 四個 CLI 全部保留（git 閘門、MCP、一次性除錯）；ykc-guard 的 MCP 維持獨立 stdio 進程。
 - 帳本單一寫者紀律：serve 與 judge 子行程共用 `.ykc/ledger.jsonl`，衝突時 serve 以指數退避重試。
+
+主動預譯預設開啟；只有明示退出才關閉：
+
+```bash
+# 預設：啟動掃描 + 每次 Rust 工作區變更自動預譯
+./bin/ykc-serve -root .
+
+# 顯式關閉（例如只想使用觀察面）
+./bin/ykc-serve -root . -no-auto-precompile
+
+# 明示使用指定 sandbox；native 例外必須兩個旗標同時表達意圖
+./bin/ykc-serve -root . -precompile-sandbox bwrap
+./bin/ykc-serve -root . -precompile-sandbox native -precompile-allow-native
+```
+
+`GET /api/watch` 會回報每個專案的 `running`/`pending`、預譯次數、最後整體結果、sandbox/isolation、診斷數與 report 路徑；`GET /api/state` 則投影最後一份 report 的有限摘要。詳見 `YKC_24_主動rustc預編譯報告.md`。
 
 ## T-19 / T-20 Capability Packs（L1/L2 可選）
 
@@ -104,6 +123,7 @@ worker 的 25 MiB 預算。詳見 `YKC_20_能力包解耦與組合架構.md` 與
 | **`YKC_19_T19_L1依賴對齊與T20_L2結構統計實作規劃.md`** | **Cargo audit/deny、pure-Go Tree-sitter、政策與 grammar admission 設計** |
 | **`YKC_20_能力包解耦與組合架構.md`** | **Core + capability pack + verified JSONL composition、thin/secure/full profiles** |
 | **`YKC_21_T19T20能力包MVP執行報告.md`** | **T-19/T-20 MVP、pack manifest、實際 cargo tool/grammar admission 與驗收** |
+| **`YKC_24_主動rustc預編譯報告.md`** | **主動預譯預設、啟動全掃、檔案變更觸發、單飛合併、sandbox fail-closed、帳本與面板狀態** |
 | **`YKC_00_構圖與路線圖.md`** | **總體構圖 + 里程碑 + 進度追蹤表（進度參照物）** |
 | **`YKC_01_容器化方案分析.md`** | Docker 類替代品深度分析（Podman/gVisor/Firecracker/Nix…）與建議 |
 | `YKC_YieldKeyCode_深度分析報告.md` | 技術五層、依賴清單、整體評分（v1.0） |
@@ -131,6 +151,7 @@ worker 的 25 MiB 預算。詳見 `YKC_20_能力包解耦與組合架構.md` 與
 ├── YKC_07_新增功能技術債審計與優化報告.md
 ├── YKC_08_eventstore_ledger橋接設計與實作.md
 ├── YKC_09_panel工作視覺與審計健康優化報告.md
+├── YKC_24_主動rustc預編譯報告.md
 ├── cmd/                           ← 十二個命令（Core + 可選 L1/L2 capability worker，共用 internal/）
 │   ├── ykc-smoke/main.go          ← 煙測引擎 ✅
 │   ├── ykc-atom/main.go           ← 原子監控 + 動態護欄 enforcement CLI ✅

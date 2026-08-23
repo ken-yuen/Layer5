@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -65,11 +66,43 @@ type JobManager struct {
 	order  []string
 	bindir string
 	root   string // 面板掃描根（claims 路徑約束的範圍之一）
+
+	// Discovery settings are kept on the manager so POST /api/jobs validates
+	// against exactly the same project set shown by GET /api/projects.
+	extraDirs []string
+	depth     int
 }
 
-// NewJobManager 建立任務管理器（bindir = ykc 二進制目錄；root = 白名單掃描根）。
+// NewJobManager 建立任務管理器（保留舊呼叫介面；預設掃描深度為 1）。
 func NewJobManager(bindir, root string) *JobManager {
-	return &JobManager{jobs: map[string]*Job{}, bindir: bindir, root: root}
+	return NewJobManagerWithDiscovery(bindir, root, nil, 1)
+}
+
+// NewJobManagerWithDiscovery 建立與面板專案發現設定一致的任務管理器。
+func NewJobManagerWithDiscovery(bindir, root string, extraDirs []string, depth int) *JobManager {
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	if abs, err := filepath.Abs(bindir); err == nil {
+		bindir = abs
+	}
+	if depth < 0 {
+		depth = 0
+	}
+	extra := make([]string, 0, len(extraDirs))
+	for _, d := range extraDirs {
+		if abs, err := filepath.Abs(d); err == nil {
+			d = abs
+		}
+		extra = append(extra, filepath.Clean(d))
+	}
+	return &JobManager{
+		jobs:      map[string]*Job{},
+		bindir:    filepath.Clean(bindir),
+		root:      filepath.Clean(root),
+		extraDirs: extra,
+		depth:     depth,
+	}
 }
 
 func newID() string {
@@ -83,18 +116,24 @@ func newID() string {
 // 同名專案可能撞車）——任意路徑一律拒收，杜絕經面板在攻擊者目錄觸發
 // cargo（build.rs → 任意代碼執行）。相對路徑以面板 root 為基準解析。
 func (m *JobManager) ValidateProject(project string) (string, error) {
-	var cands []string
-	abs, err := filepath.Abs(project)
-	if err != nil {
-		return "", fmt.Errorf("project 路徑無法解析: %s", project)
+	if strings.TrimSpace(project) == "" {
+		return "", fmt.Errorf("project 不能為空")
 	}
-	cands = append(cands, filepath.Clean(abs))
+	cands := []string{}
+	if abs, err := filepath.Abs(project); err == nil {
+		cands = append(cands, filepath.Clean(abs))
+	}
 	if !filepath.IsAbs(project) {
 		cands = append(cands, filepath.Clean(filepath.Join(m.root, project)))
 	}
-	for _, c := range cands {
-		for _, d := range DiscoverCargoProjects(m.root, nil, 1) {
-			if d == c {
+	discovered := DiscoverCargoProjects(m.root, m.extraDirs, m.depth)
+	for _, candidate := range cands {
+		canonical, err := canonicalDir(candidate)
+		if err != nil {
+			continue
+		}
+		for _, d := range discovered {
+			if samePath(d, canonical) {
 				return d, nil
 			}
 		}
@@ -102,28 +141,106 @@ func (m *JobManager) ValidateProject(project string) (string, error) {
 	return "", fmt.Errorf("project 不在已發現專案清單內（請先 GET /api/projects）: %s", project)
 }
 
-// ValidateClaims 邊界加固：claims 檔必須在「專案目錄」或「面板根」之內
-// （防經面板讀取任意檔案）。
+// ValidateClaims 邊界加固：claims 檔必須在「專案目錄」或「面板根」之內，
+// 且必須是 regular file。先解析 symlink 再做 containment，避免 root 內的
+// symlink 把子行程導向任意外部檔案。
 func (m *JobManager) ValidateClaims(project, claims string) (string, error) {
-	abs, err := filepath.Abs(claims)
+	if strings.TrimSpace(claims) == "" {
+		return "", fmt.Errorf("claims 路徑不能為空")
+	}
+	cands := []string{}
+	if abs, err := filepath.Abs(claims); err == nil {
+		cands = append(cands, filepath.Clean(abs))
+	}
+	if !filepath.IsAbs(claims) {
+		cands = append(cands, filepath.Clean(filepath.Join(m.root, claims)))
+	}
+	roots := []string{}
+	for _, root := range []string{m.root, project} {
+		canonical, err := canonicalDir(root)
+		if err == nil {
+			roots = append(roots, canonical)
+		}
+	}
+	for _, candidate := range cands {
+		fi, err := os.Stat(candidate)
+		if err != nil || !fi.Mode().IsRegular() {
+			continue
+		}
+		resolved, err := filepath.EvalSymlinks(candidate)
+		if err != nil {
+			continue
+		}
+		target := filepath.Clean(resolved)
+		for _, root := range roots {
+			if inside(root, target) {
+				return target, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("claims 檔案不存在、不是 regular file，或 symlink 解析後越界: %s", claims)
+}
+
+func canonicalDir(path string) (string, error) {
+	abs, err := filepath.Abs(path)
 	if err != nil {
-		return "", fmt.Errorf("claims 路徑無法解析: %s", claims)
+		return "", err
 	}
-	if inside(m.root, abs) || inside(project, abs) {
-		return abs, nil
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("claims 檔案必須在專案目錄或面板根目錄內: %s", claims)
+	fi, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !fi.IsDir() {
+		return "", fmt.Errorf("not a directory: %s", path)
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func samePath(a, b string) bool {
+	a, b = filepath.Clean(a), filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 func inside(root, p string) bool {
-	rr := filepath.Clean(root)
-	r := filepath.Clean(p)
-	return r == rr || strings.HasPrefix(r, rr+string(os.PathSeparator))
+	rr, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	rp, err := filepath.Abs(p)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(rr), filepath.Clean(rp))
+	if err != nil {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		rel = strings.ToLower(rel)
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
+}
+
+// executablePath handles the .exe suffix produced by Go builds on Windows.
+func (m *JobManager) executable(name string) string {
+	path := filepath.Join(m.bindir, name)
+	if runtime.GOOS == "windows" && filepath.Ext(path) == "" {
+		if _, err := os.Stat(path + ".exe"); err == nil {
+			return path + ".exe"
+		}
+	}
+	return path
 }
 
 // argv 把「動作名」映對到實際二進制與參數。
 func (m *JobManager) argv(action, project, claims string) (string, []string, error) {
-	bin := func(n string) string { return filepath.Join(m.bindir, n) }
+	bin := func(n string) string { return m.executable(n) }
 	switch action {
 	case "smoke":
 		args := []string{"-dir", project}
@@ -136,7 +253,9 @@ func (m *JobManager) argv(action, project, claims string) (string, []string, err
 	case "gate":
 		return bin("ykc-judge"), []string{"-dir", project, "-gate"}, nil
 	case "precompile":
-		return bin("ykc-precompile"), []string{"-project", project, "-sandbox", "native", "-allow-native", "-json=false"}, nil
+		// Precompile is a sandboxed action by default. Native execution is an
+		// explicit CLI-only opt-in for trusted local work, never a panel default.
+		return bin("ykc-precompile"), []string{"-project", project, "-sandbox", "auto", "-json=false"}, nil
 	case "verify":
 		return bin("ykc-judge"), []string{"-dir", project, "-verify"}, nil
 	case "sync-ledger":
@@ -175,7 +294,7 @@ func (m *JobManager) Start(action, project, claims string) (*Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err := os.Stat(name); err != nil {
+	if fi, err := os.Stat(name); err != nil || fi.IsDir() {
 		return nil, fmt.Errorf("找不到可執行檔 %s（請先執行 make binaries）", name)
 	}
 	cmd := exec.Command(name, args...)
@@ -201,18 +320,25 @@ func (m *JobManager) Start(action, project, claims string) (*Job, error) {
 		return j, nil
 	}
 	go func() {
-		_ = cmd.Wait()
+		waitErr := cmd.Wait()
 		j.mu.Lock()
+		defer j.mu.Unlock()
 		if j.Status == "stopped" {
-			// Stop() 已標記
-		} else if cmd.ProcessState != nil {
+			// Stop() 已標記。
+			return
+		}
+		if cmd.ProcessState != nil {
 			if cmd.ProcessState.Success() {
 				j.Status, j.ExitCode = "done", 0
 			} else {
 				j.Status, j.ExitCode = "failed", cmd.ProcessState.ExitCode()
 			}
+		} else {
+			j.Status, j.ExitCode = "failed", -1
+			if waitErr != nil {
+				j.logBuf = append(j.logBuf, []byte("等待任務結束失敗: "+waitErr.Error()+"\n")...)
+			}
 		}
-		j.mu.Unlock()
 	}()
 	return j, nil
 }
@@ -231,8 +357,15 @@ func (m *JobManager) Stop(id string) error {
 		return fmt.Errorf("任務已結束")
 	}
 	j.Status = "stopped"
+	j.ExitCode = -1
+	cmd := j.cmd
 	j.mu.Unlock()
-	_ = j.cmd.Process.Kill()
+	if cmd == nil || cmd.Process == nil {
+		return fmt.Errorf("任務沒有可停止的程序")
+	}
+	if err := cmd.Process.Kill(); err != nil {
+		return fmt.Errorf("停止任務失敗: %w", err)
+	}
 	return nil
 }
 

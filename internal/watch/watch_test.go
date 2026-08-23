@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -141,7 +142,16 @@ func TestInotifyBackendEndToEnd(t *testing.T) {
 	if !containsEvent(batch, OpWrite, "main.rs") {
 		t.Fatalf("expected main.rs write, got %v", batch)
 	}
-	// ③ 子目錄（watch 動態遞迴）
+	// ③ rename 應在 cookie 配對後保留 rename 語義，而不是因 read(2)
+	// 分段被過早拆成 remove/create。
+	if err := os.Rename(filepath.Join(dir, "main.rs"), filepath.Join(dir, "renamed.rs")); err != nil {
+		t.Fatal(err)
+	}
+	batch = waitBatch(t, w, 5*time.Second)
+	if !containsEvent(batch, OpRename, "renamed.rs") {
+		t.Fatalf("expected paired rename, got %v", batch)
+	}
+	// ④ 子目錄（watch 動態遞迴）
 	sub := filepath.Join(dir, "src")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
@@ -227,5 +237,55 @@ func TestPollBackendEndToEnd(t *testing.T) {
 func TestNewWatcherRejectsEmptyRoots(t *testing.T) {
 	if _, err := NewWatcher(Config{}); err == nil {
 		t.Fatal("expected error for empty roots")
+	}
+}
+
+type testBackend struct {
+	events chan Event
+	errors chan error
+}
+
+func (b *testBackend) Add(string) error     { return nil }
+func (b *testBackend) Events() <-chan Event { return b.events }
+func (b *testBackend) Errors() <-chan error { return b.errors }
+func (b *testBackend) Name() string         { return "test" }
+func (b *testBackend) Close() error         { return nil }
+
+func TestWatcherReportsBackendErrorAndClosesStreams(t *testing.T) {
+	backend := &testBackend{events: make(chan Event), errors: make(chan error, 1)}
+	w, err := NewWatcher(Config{Roots: []string{"ignored"}, Backend: backend, Debounce: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend.errors <- errors.New("queue overflow")
+	select {
+	case got := <-w.Errors():
+		if got == nil || got.Error() != "queue overflow" {
+			t.Fatalf("unexpected watcher error: %v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("watcher error was not surfaced")
+	}
+	if msg, count := w.LastError(); msg != "queue overflow" || count != 1 {
+		t.Fatalf("last error = %q/%d", msg, count)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case _, ok := <-w.Batches():
+		if ok {
+			t.Fatal("batches channel must close after watcher Close")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("batches channel did not close")
+	}
+	select {
+	case _, ok := <-w.Errors():
+		if ok {
+			t.Fatal("errors channel must close after watcher Close")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("errors channel did not close")
 	}
 }

@@ -45,7 +45,7 @@ func (n *Native) Version(ctx context.Context) (core.ToolchainInfo, error) {
 		return core.ToolchainInfo{}, fmt.Errorf("工具鏈不可用: %s", why)
 	}
 	info := core.ToolchainInfo{}
-	if so, _, c := rustutil.Run("", "rustc", "-vV"); c == 0 {
+	if so, _, c := rustutil.RunContext(ctx, "", "rustc", "-vV"); c == 0 {
 		for _, ln := range strings.Split(so, "\n") {
 			ln = strings.TrimSpace(ln)
 			switch {
@@ -56,7 +56,7 @@ func (n *Native) Version(ctx context.Context) (core.ToolchainInfo, error) {
 			}
 		}
 	}
-	if so, _, c := rustutil.Run("", "cargo", "--version"); c == 0 {
+	if so, _, c := rustutil.RunContext(ctx, "", "cargo", "--version"); c == 0 {
 		info.Cargo = strings.TrimSpace(so)
 	}
 	if p, err := exec.LookPath("cargo"); err == nil {
@@ -67,7 +67,7 @@ func (n *Native) Version(ctx context.Context) (core.ToolchainInfo, error) {
 		}
 	}
 	if _, err := exec.LookPath("rust-analyzer"); err == nil {
-		if so, _, c := rustutil.Run("", "rust-analyzer", "--version"); c == 0 {
+		if so, _, c := rustutil.RunContext(ctx, "", "rust-analyzer", "--version"); c == 0 {
 			info.RustAnalyzer = strings.TrimSpace(so)
 		}
 	}
@@ -82,7 +82,7 @@ func (n *Native) Check(ctx context.Context, dir string) (core.RustCheckResult, e
 	if ok, why := n.Available(); !ok {
 		return core.RustCheckResult{}, fmt.Errorf("工具鏈不可用: %s", why)
 	}
-	so, se, exit := rustutil.Run(dir, "cargo", "check", "--message-format=json")
+	so, se, exit := rustutil.RunContext(ctx, dir, "cargo", "check", "--message-format=json")
 	res := ParseCargoCheckJSON(so)
 	// 若非 0 退出但沒解析到任何錯誤，視為工具鏈級失敗（語義沿襲 cargocheck.go）
 	if exit != 0 && len(res.Errors) == 0 {
@@ -96,7 +96,7 @@ func (n *Native) QuickCheck(ctx context.Context, dir string) (bool, string) {
 	if ok, why := n.Available(); !ok {
 		return false, "工具鏈不可用: " + why
 	}
-	_, se, exit := rustutil.Run(dir, "cargo", "check", "--quiet")
+	_, se, exit := rustutil.RunContext(ctx, dir, "cargo", "check", "--quiet")
 	if exit == 0 {
 		return true, ""
 	}
@@ -108,7 +108,7 @@ func (n *Native) Test(ctx context.Context, dir string) (bool, string) {
 	if ok, why := n.Available(); !ok {
 		return false, "工具鏈不可用: " + why
 	}
-	_, se, exit := rustutil.Run(dir, "cargo", "test", "--quiet")
+	_, se, exit := rustutil.RunContext(ctx, dir, "cargo", "test", "--quiet")
 	if exit == 0 {
 		return true, ""
 	}
@@ -120,7 +120,7 @@ func (n *Native) Fix(ctx context.Context, dir string) error {
 	if ok, why := n.Available(); !ok {
 		return fmt.Errorf("工具鏈不可用: %s", why)
 	}
-	_, se, exit := rustutil.Run(dir, "cargo", "fix", "--allow-no-vcs", "--allow-dirty", "--broken-code")
+	_, se, exit := rustutil.RunContext(ctx, dir, "cargo", "fix", "--allow-no-vcs", "--allow-dirty", "--broken-code")
 	if exit != 0 {
 		return fmt.Errorf("cargo fix exit %d: %s", exit, strings.TrimSpace(se))
 	}
@@ -135,7 +135,7 @@ func (n *Native) Explain(ctx context.Context, dir, code string) string {
 	if ok, _ := n.Available(); !ok {
 		return ""
 	}
-	so, _, c := rustutil.Run(dir, "rustc", "--explain", code)
+	so, _, c := rustutil.RunContext(ctx, dir, "rustc", "--explain", code)
 	if c != 0 || so == "" {
 		return ""
 	}

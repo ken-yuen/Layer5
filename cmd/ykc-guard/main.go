@@ -115,7 +115,7 @@ func cmdScore(args []string) {
 	for _, c := range doc.Claims {
 		v := p.Verify(c)
 		verdicts = append(verdicts, v)
-		appendTrustEvent(br, p.Dir, domain.EventClaimVerdict, doc.SessionID, map[string]any{
+		mustAppendTrustEvent(br, p.Dir, domain.EventClaimVerdict, doc.SessionID, map[string]any{
 			"agent_id": doc.AgentID, "session_id": doc.SessionID,
 			"claim_id": v.ClaimID, "text": v.Text, "feature": v.Feature,
 			"verdict": v.Verdict, "evidence": v.Evidence, "severity": v.Severity,
@@ -126,7 +126,7 @@ func cmdScore(args []string) {
 	from := TrustLevel(claimview.TrustLevel(readAll(p.Dir), doc.AgentID, int(T3)))
 	to, events := ApplyAll(from, verdicts)
 	for _, ev := range events {
-		appendTrustEvent(br, p.Dir, domain.EventTrustEvent, doc.SessionID, map[string]any{
+		mustAppendTrustEvent(br, p.Dir, domain.EventTrustEvent, doc.SessionID, map[string]any{
 			"agent_id": doc.AgentID, "session_id": doc.SessionID,
 			"claim_id": ev.ClaimID, "severity": ev.Severity, "kind": ev.Kind,
 			"intent": ev.Intent, "from": int(ev.From), "to": int(ev.To), "action": ev.Action,
@@ -186,7 +186,7 @@ func cmdReset(args []string) {
 		os.Exit(1)
 	}
 	defer br.Close()
-	appendTrustEvent(br, p.Dir, domain.EventTrustReset, "", map[string]any{
+	mustAppendTrustEvent(br, p.Dir, domain.EventTrustReset, "", map[string]any{
 		"agent_id": *agent, "to": int(T3), "reason": *reason,
 	})
 	fmt.Printf("✅ 已重置代理 %s → T3 高度信任\n   理由: %s（已永久寫入帳本）\n", *agent, *reason)

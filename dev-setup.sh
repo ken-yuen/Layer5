@@ -9,7 +9,7 @@
 #   - 優先沿用系統 Go；Rust 則固定安裝/使用 $YKC_HOME 的鎖定版本
 #   - staticcheck 與 rust-analyzer（版本 + SHA-256）自動補裝，供品質／LSP 驗證
 #   - 冪等：可重複執行，不會重複下載
-set -e
+set -Eeuo pipefail
 
 GO_VER="1.27.0"
 RUST_VER="1.98.0"
@@ -17,6 +17,10 @@ RA_VER="2026-08-17.4"
 STATICCHECK_VER="v0.8.1"
 YKC_HOME="${YKC_HOME:-$HOME/.ykc}"
 mkdir -p "$YKC_HOME"
+cleanup() {
+  rm -f "$YKC_HOME/go.tgz" "$YKC_HOME/rustup-init.sh"
+}
+trap cleanup EXIT
 
 # ---------- 平台偵測 ----------
 OS="$(uname -s)"
@@ -42,9 +46,14 @@ else
     echo "✅ 偵測到 $YKC_HOME/go：$("$YKC_HOME/go/bin/go" version)"
   else
     echo "── 下載 Go $GO_VER ($GO_OS-$GO_ARCH) → $YKC_HOME/go ──"
-    curl -sL -o "$YKC_HOME/go.tgz" "https://go.dev/dl/go${GO_VER}.${GO_OS}-${GO_ARCH}.tar.gz"
-    rm -rf "$YKC_HOME/go" && mkdir -p "$YKC_HOME/go" && tar -C "$YKC_HOME/go" --strip-components=1 -xzf "$YKC_HOME/go.tgz"
-    rm -f "$YKC_HOME/go.tgz"
+    GO_ARCHIVE="$YKC_HOME/go.tgz"
+    curl -fsSL --retry 3 --retry-delay 2 -o "$GO_ARCHIVE" "https://go.dev/dl/go${GO_VER}.${GO_OS}-${GO_ARCH}.tar.gz"
+    test -s "$GO_ARCHIVE"
+    tar -tzf "$GO_ARCHIVE" >/dev/null
+    rm -rf "$YKC_HOME/go"
+    mkdir -p "$YKC_HOME/go"
+    tar -C "$YKC_HOME/go" --strip-components=1 -xzf "$GO_ARCHIVE"
+    rm -f "$GO_ARCHIVE"
   fi
   export PATH="$YKC_HOME/go/bin:$PATH"
 fi
@@ -68,9 +77,11 @@ export RUSTUP_HOME="$YKC_HOME/rustup"
 export CARGO_HOME="$YKC_HOME/cargo"
 if [ ! -x "$CARGO_HOME/bin/cargo" ]; then
   echo "── 安裝 rustup（minimal，rustc $RUST_VER）→ $YKC_HOME ──"
-  curl -sSf https://sh.rustup.rs -o "$YKC_HOME/rustup-init.sh"
-  sh "$YKC_HOME/rustup-init.sh" -y --profile minimal --default-toolchain "$RUST_VER"
-  rm -f "$YKC_HOME/rustup-init.sh"
+  RUSTUP_INIT="$YKC_HOME/rustup-init.sh"
+  curl -fsSL --retry 3 --retry-delay 2 https://sh.rustup.rs -o "$RUSTUP_INIT"
+  test -s "$RUSTUP_INIT"
+  sh "$RUSTUP_INIT" -y --profile minimal --default-toolchain "$RUST_VER"
+  rm -f "$RUSTUP_INIT"
 else
   echo "✅ 偵測到 YKC cargo：$CARGO_HOME/bin/cargo"
 fi
@@ -117,7 +128,7 @@ elif [ -n "$RA_TARGET" ]; then
   RA_TMP="$RA_BIN.tmp"
   RA_OK=false
   echo "── 下載 rust-analyzer $RA_VER ($RA_TARGET) → $RA_BIN ──"
-  if curl -fsSL "https://github.com/rust-lang/rust-analyzer/releases/download/${RA_VER}/rust-analyzer-${RA_TARGET}.gz" -o "$RA_ARCHIVE"; then
+  if curl -fsSL --retry 3 --retry-delay 2 "https://github.com/rust-lang/rust-analyzer/releases/download/${RA_VER}/rust-analyzer-${RA_TARGET}.gz" -o "$RA_ARCHIVE"; then
     RA_HASH_OK=false
     if command -v sha256sum >/dev/null 2>&1; then
       if printf '%s  %s\n' "$RA_SHA256" "$RA_ARCHIVE" | sha256sum -c -; then
@@ -141,10 +152,16 @@ elif [ -n "$RA_TARGET" ]; then
     echo "✅ rust-analyzer 已下載並校驗（$RA_VER）→ $YKC_HOME/bin"
   else
     rm -f "$RA_BIN" "$RA_MARKER"
-    echo "⚠️ rust-analyzer $RA_VER 下載或 SHA 校驗失敗（僅影響 make lsp；可稍後重跑 setup）"
+    if [ "${YKC_ALLOW_MISSING_LSP:-0}" = "1" ]; then
+      echo "⚠️ rust-analyzer $RA_VER 下載或 SHA 校驗失敗（YKC_ALLOW_MISSING_LSP=1，僅影響 make lsp）"
+    else
+      echo "❌ rust-analyzer $RA_VER 下載或 SHA 校驗失敗；拒絕宣稱環境就緒。若只需 core lane，可重跑並設定 YKC_ALLOW_MISSING_LSP=1" >&2
+      exit 1
+    fi
   fi
 else
-  echo "⚠️ 無此平台 rust-analyzer 鎖定建置（僅影響 make lsp）"
+  echo "❌ 此平台沒有 rust-analyzer 鎖定建置" >&2
+  exit 1
 fi
 
 echo ""

@@ -1,6 +1,7 @@
 package precompile
 
 import (
+	"strings"
 	"testing"
 
 	"ykc/internal/domain"
@@ -26,6 +27,13 @@ func TestParseIgnoresNonJSONLines(t *testing.T) {
 	pr := ParseDiagnostics("Compiling demo\n{\"level\":\"warning\",\"message\":\"careful\"}\n")
 	if pr.NonJSONLines != 1 || pr.Summary.WarningCount != 1 {
 		t.Fatalf("unexpected summary: %+v", pr)
+	}
+}
+
+func TestParseDiagnosticsReportsOversizedLine(t *testing.T) {
+	pr := ParseDiagnostics(strings.Repeat("x", 1024*1024+1))
+	if pr.ParseError == "" {
+		t.Fatal("oversized diagnostic line must be reported, not silently treated as clean")
 	}
 }
 

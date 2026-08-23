@@ -3,6 +3,7 @@ package rustutil
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,14 +15,34 @@ import (
 )
 
 // Run 在 dir 內執行命令，回傳 stdout/stderr/exitCode；啟動失敗回 -1 並把錯誤寫入 stderr。
+// 舊呼叫端沒有 context 時使用此便利包裝；有上限要求的路徑應使用 RunContext。
 func Run(dir, name string, args ...string) (stdout, stderr string, exitCode int) {
-	cmd := exec.Command(name, args...)
+	return RunContext(context.Background(), dir, name, args...)
+}
+
+// RunContext is the context-aware command primitive shared by toolchain
+// adapters. The previous Run implementation ignored cancellation, so a cargo
+// process could outlive a request or test timeout indefinitely.
+func RunContext(ctx context.Context, dir, name string, args ...string) (stdout, stderr string, exitCode int) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	var so, se bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &so, &se
 	err := cmd.Run()
-	if err != nil && cmd.ProcessState == nil {
-		se.WriteString("exec error: " + err.Error())
+	if err != nil {
+		if ctx.Err() != nil {
+			se.WriteString("exec context: " + ctx.Err().Error())
+			return so.String(), se.String(), -1
+		}
+		if cmd.ProcessState == nil {
+			se.WriteString("exec error: " + err.Error())
+			return so.String(), se.String(), -1
+		}
+	}
+	if cmd.ProcessState == nil {
 		return so.String(), se.String(), -1
 	}
 	return so.String(), se.String(), cmd.ProcessState.ExitCode()
