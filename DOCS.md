@@ -1,7 +1,7 @@
 # 弦律 ChordLaw — 專案說明文件（DOCS.md）
 
-> 版本 v0.3 · 2026-08-22 · 狀態：**可運行原型，全部驗證通過**
-> 19 項回歸測試全綠 · rustc oracle 差異測試 26/26 一致（0 虛假放行）· 17 範例判定與 NLL 語義一致
+> 版本 v0.5 · 2026-08-27 · 狀態：**可運行原型，32 則規則 + 幾何法則可測 + 圓示全綠**
+> 92 項回歸測試全綠 · rustc oracle 差異測試 26/26 一致（0 虛假放行）· 17 範例判定與 NLL 語義一致
 
 **配套文件**：
 - [README.md](README.md) — 快速上手（運行/測試/檔案總覽）
@@ -464,6 +464,15 @@ verdict: FAIL — 1 個錯誤
 ---
 
 ## 12. 變更記錄
+
+### v0.4（2026-08-24）
+
+- **32 則錯誤規則 E01–E32**（`rules.dl`）：E01–E10 行為不變；E11–E32 僅由新事實點火（imm/tmp/hole/store/deref/call/else），不擾 v0.3 語料。
+- **前端**：`let imm` / `let hole` / `tmp` / `slot` / `set *T` / `mv *T` / `store` / `call` / `callmv` / `fn f(imm p)` / `if { } else { }` 菱形 CFG。
+- **引擎**：否定可作用於內建謂詞（`!subpath` / `!path_conflict`）。
+- **圓示**：else 琥珀色圓、法則③、E04/E16/E28 逸出箭頭；32 張 `examples/out/rXX_*.svg`。
+- **文件**：`RULES32.md` 規則目錄、`gallery.html` 32 則畫廊。
+- **測試**：46 項全綠（v0.3 回歸 + v0.4 32 則對應）。
 
 ### v0.3（2026-08-22）
 - **if 分支** CFG（作用域樹遍歷生邊；`after := reach`）；NLL 分支活度語義（ex12–ex13）。

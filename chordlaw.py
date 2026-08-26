@@ -1,32 +1,34 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-弦律 ChordLaw — 簡化 Rust 借用/生命週期檢查器 (工作原型 v0.3)
+弦律 ChordLaw — 簡化 Rust 借用/生命週期檢查器 (工作原型 v0.5)
 =============================================================
 核心:
   1. mini Datalog 引擎: 分層 (stratified) 單調定點 + 證明樹 (provenance)
      + 有限域內建 (neq / path_conflict / covers / subpath)
   2. mini 前端: 玩具語言 .cl → 事實集
-     (控制流 DAG 含 if 分支與迴圈後向邊、作用域樹、多 fn、字段路徑/split borrow、借用弧)
+     (控制流 DAG 含 if/else 菱形、迴圈後向邊、作用域樹、多 fn、字段路徑/split borrow、
+      imm/tmp/hole/slot、經參考寫/移、store、call/callmv)
   3. 圓示 (縱點節圖) SVG 渲染器: 點=陳述、弧=借用、圓=作用域
   4. 代理接口: --json (verdict/errors+證明樹/regions) / --explain / --rules
+  5. 32 則錯誤規則 E01–E32 (rules.dl) + 32 則圓示範例 (examples/rXX_*.cl)
 
 規則 = 規則檔 (rules.dl + liveness_{nll,referent,lexical}.dl),
 引擎是通用 Datalog 解譯器。純標準庫, 無外部依賴。
 
 用法:
   python3 chordlaw.py                    # 全部範例
-  python3 chordlaw.py examples/ex1_clash.cl
+  python3 chordlaw.py examples/r01_eclash.cl
   python3 chordlaw.py --liveness nll|referent|lexical
   python3 chordlaw.py --json FILE        # 機器接口
   python3 chordlaw.py --explain FILE     # 規則原文+證明+幾何+修法
   python3 chordlaw.py --rules            # 規則規格速覽
 
 驗證:
-  python3 test_chordlaw.py               # 19 項回歸測試
-  python3 oracle_check.py                # 26 例 vs 真 rustc 差異測試 (需 rustc)
+  python3 test_chordlaw.py               # 回歸測試
+  python3 oracle_check.py                # vs 真 rustc 差異測試 (需 rustc)
 
-完整說明見 DOCS.md; 計畫與論證見 PLAN.md。
+完整說明見 DOCS.md / RULES32.md; 計畫與論證見 PLAN.md。
 """
 import os
 import re
@@ -34,7 +36,7 @@ import sys
 import glob
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-VERSION = "v0.3"
+VERSION = "v0.5"
 
 def esc(s):
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -167,7 +169,11 @@ class Datalog:
             base_len = len(acc)
             for P, args in r["neg"]:
                 t = tuple(bound(subst, v) for v in args)
-                if t in self.facts.get(P, ()):
+                if P in BUILTINS:
+                    if self._builtin_ok(P, *t):
+                        del acc[base_len:]
+                        return
+                elif t in self.facts.get(P, ()):
                     del acc[base_len:]
                     return
                 acc.append(("!" + P, t))
@@ -276,14 +282,15 @@ def parse_atom(p):
 # 2. mini 前端: 玩具語言 .cl → 事實集
 # ================================================================
 # 語法 (每行一句):
-#   fn NAME(args) { ... }     函數體 (參數之範圍 = ROOT, 即來自呼叫者; 每檔可多 fn, 各自獨立檢查)
+#   fn NAME(args) { ... }     函數體 (參數之範圍 = ROOT; 每檔可多 fn; 參數可標 imm)
 #   { ... }                   區塊
 #   loop { ... }              迴圈 (後向邊)
-#   if { ... }                分支 (無 else; 分支內使用不延長活度過分支 — NLL 益處)
-#   let P                     宣告 place (P = 簡單名稱)
+#   if { ... } [else { ... }] 分支 (else 為兄弟; 菱形 CFG)
+#   let P / let imm P / let hole P / tmp P / slot P
 #   let P = &Q / &mut Q       出借 (sh / mut; Q 可為字段路徑 x.f)
-#   use P / set P / mv P / dp P   讀取 / 寫入 / move / drop (P 可為字段路徑)
-#   ret T                     回傳參考 T (逸出檢查) / 回傳簡單名稱 = move
+#   use P / set P / mv P / dp P   讀取 / 寫入 / move / drop
+#   set *T / mv *T / store P = T / call F(P) / callmv F(P)
+#   ret T                     回傳參考 T / 回傳簡單名稱 = move
 # 字段路徑: x.f.g — 根 x 須已宣告; 借 x.f 與 x.g 可共存 (split borrow), 與 x 整體不可;
 #           經參考取字段 (deref coercion) 不受支持。
 
@@ -422,16 +429,46 @@ def parse_cl(text):
                 pr.errors.append((line, "E00 fn 必須在頂層 (v0.3)"))
                 continue
             pr.push("fn", name=m.group(1))
-            for p in [x.strip() for x in m.group(2).split(",") if x.strip()]:
-                pr.scope_of[p] = pr.root          # 參數來自呼叫者 (ROOT 範圍)
+            for rawp in [x.strip() for x in m.group(2).split(",") if x.strip()]:
+                mm = re.match(r"^(imm\s+)?(\w+)$", rawp)
+                if not mm:
+                    pr.errors.append((line, "E00 無法解析參數: %s" % rawp))
+                    continue
+                p = mm.group(2)
+                pr.scope_of[p] = pr.root
                 pr.names[-1][p] = ("param", pr.root)
                 pr.facts.append(("scope_of", (p, pr.root)))
+                pr.facts.append(("param", (p,)))
+                if mm.group(1):
+                    pr.facts.append(("imm", (p,)))
             continue
         if line == "loop {":
             pr.push("loop")
             continue
         if line == "if {":
             pr.push("if")
+            continue
+        if line.replace(" ", "") == "}else{":
+            if not pr.stack:
+                pr.errors.append((line, "E00 多餘的 } (未對應的閉合)"))
+                continue
+            popped = pr.pop()
+            if popped["kind"] != "if":
+                pr.errors.append((line, "E00 else 必須緊跟 if"))
+                continue
+            pr.push("else")
+            continue
+        if line == "else {":
+            items = pr.cur()["items"]
+            ok = False
+            if items and items[-1][0] == "scope":
+                sc = next((x for x in pr.scopes if x["id"] == items[-1][1]), None)
+                if sc and sc["kind"] == "if":
+                    ok = True
+            if not ok:
+                pr.errors.append((line, "E00 else 必須緊跟 if"))
+                continue
+            pr.push("else")
             continue
         if line == "{":
             pr.push("block")
@@ -449,6 +486,53 @@ def parse_cl(text):
         m = re.match(r"^let\s+(\w+)\s*=\s*&\s*" + DNAME + "$", line)
         if m:
             pr._lend(m.group(1), m.group(2), "sh", line)
+            continue
+        m = re.match(r"^let\s+imm\s+(\w+)$", line)
+        if m:
+            p = m.group(1)
+            sid = pr.stmt(line)
+            if sid is None:
+                continue
+            pr.scope_of[p] = pr.cur()["id"]
+            pr.names[-1][p] = ("place", pr.cur()["id"])
+            pr.facts.append(("scope_of", (p, pr.cur()["id"])))
+            pr.facts.append(("decl", (sid, p, pr.cur()["id"])))
+            pr.facts.append(("imm", (p,)))
+            continue
+        m = re.match(r"^let\s+hole\s+(\w+)$", line)
+        if m:
+            p = m.group(1)
+            sid = pr.stmt(line)
+            if sid is None:
+                continue
+            pr.scope_of[p] = pr.cur()["id"]
+            pr.names[-1][p] = ("place", pr.cur()["id"])
+            pr.facts.append(("scope_of", (p, pr.cur()["id"])))
+            pr.facts.append(("decl", (sid, p, pr.cur()["id"])))
+            pr.facts.append(("hole", (p,)))
+            continue
+        m = re.match(r"^tmp\s+(\w+)$", line)
+        if m:
+            p = m.group(1)
+            sid = pr.stmt(line)
+            if sid is None:
+                continue
+            pr.scope_of[p] = pr.cur()["id"]
+            pr.names[-1][p] = ("place", pr.cur()["id"])
+            pr.facts.append(("scope_of", (p, pr.cur()["id"])))
+            pr.facts.append(("decl", (sid, p, pr.cur()["id"])))
+            pr.facts.append(("temp", (p,)))
+            continue
+        m = re.match(r"^slot\s+(\w+)$", line)
+        if m:
+            p = m.group(1)
+            sid = pr.stmt(line)
+            if sid is None:
+                continue
+            pr.scope_of[p] = pr.cur()["id"]
+            pr.names[-1][p] = ("place", pr.cur()["id"])
+            pr.facts.append(("scope_of", (p, pr.cur()["id"])))
+            pr.facts.append(("decl", (sid, p, pr.cur()["id"])))
             continue
         m = re.match(r"^let\s+(\w+)$", line)
         if m:
@@ -484,6 +568,109 @@ def parse_cl(text):
                 pr.facts.append(("use_ref", (sid, nm)))
             else:
                 pr.facts.append(("read", (sid, nm)))
+            continue
+        m = re.match(r"^set\s+\*\s*(\w+)$", line)
+        if m:
+            nm = m.group(1)
+            info = pr.resolve(nm)
+            if info is None:
+                pr.errors.append((line, "E00 未定義名稱: %s" % nm))
+                continue
+            if info[0] != "ref":
+                pr.errors.append((line, "E00 set * 須作用於參考"))
+                continue
+            sid = pr.stmt(line)
+            if sid is None:
+                continue
+            pr.facts.append(("deref_write", (sid, nm)))
+            pr.facts.append(("use_ref", (sid, nm)))
+            continue
+        m = re.match(r"^mv\s+\*\s*(\w+)$", line)
+        if m:
+            nm = m.group(1)
+            info = pr.resolve(nm)
+            if info is None:
+                pr.errors.append((line, "E00 未定義名稱: %s" % nm))
+                continue
+            if info[0] != "ref":
+                pr.errors.append((line, "E00 mv * 須作用於參考"))
+                continue
+            sid = pr.stmt(line)
+            if sid is None:
+                continue
+            pr.facts.append(("deref_move", (sid, nm)))
+            pr.facts.append(("use_ref", (sid, nm)))
+            continue
+        m = re.match(r"^store\s+(\w+)\s*=\s*(\w+)$", line)
+        if m:
+            slot, refn = m.group(1), m.group(2)
+            si = pr.resolve(slot)
+            ri = pr.resolve(refn)
+            if si is None:
+                pr.errors.append((line, "E00 未定義名稱: %s" % slot))
+                continue
+            if ri is None:
+                pr.errors.append((line, "E00 未定義名稱: %s" % refn))
+                continue
+            if si[0] == "ref":
+                pr.errors.append((line, "E00 store 目標須為槽/地方"))
+                continue
+            if ri[0] != "ref":
+                pr.errors.append((line, "E00 store 來源須為參考"))
+                continue
+            sid = pr.stmt(line)
+            if sid is None:
+                continue
+            pr.facts.append(("store", (sid, slot, refn)))
+            pr.facts.append(("use_ref", (sid, refn)))
+            continue
+        m = re.match(r"^callmv\s+(\w+)\s*\(([^)]*)\)$", line)
+        if m:
+            args = [x.strip() for x in m.group(2).split(",") if x.strip()]
+            if not args:
+                pr.errors.append((line, "E00 callmv 需要參數"))
+                continue
+            bad = False
+            for a in args:
+                if pr._root_info(a, line) is None:
+                    bad = True
+                    break
+            if bad:
+                continue
+            sid = pr.stmt(line)
+            if sid is None:
+                continue
+            for a in args:
+                pr._path_scope_fact(a)
+                info = pr.resolve(a.split(".", 1)[0])
+                if info and info[0] == "ref" and "." not in a:
+                    pr.facts.append(("use_ref", (sid, a)))
+                else:
+                    pr.facts.append(("callmv", (sid, a)))
+            continue
+        m = re.match(r"^call\s+(\w+)\s*\(([^)]*)\)$", line)
+        if m:
+            args = [x.strip() for x in m.group(2).split(",") if x.strip()]
+            if not args:
+                pr.errors.append((line, "E00 call 需要參數"))
+                continue
+            bad = False
+            for a in args:
+                if pr._root_info(a, line) is None:
+                    bad = True
+                    break
+            if bad:
+                continue
+            sid = pr.stmt(line)
+            if sid is None:
+                continue
+            for a in args:
+                pr._path_scope_fact(a)
+                info = pr.resolve(a.split(".", 1)[0])
+                if info and info[0] == "ref" and "." not in a:
+                    pr.facts.append(("use_ref", (sid, a)))
+                else:
+                    pr.facts.append(("call", (sid, a)))
             continue
         m = re.match(r"^set\s+" + DNAME + "$", line)
         if m:
@@ -541,27 +728,56 @@ def _build_graph(self):
     for s in self.scopes:
         self.descendants[s["id"]], self.all_stmts[s["id"]] = subtree(s["id"])
 
-    # 控制流邊: 依作用域樹遍歷 (fn 之間、兄弟分支之間無邊)
+    # 把子樹陳述掛回 scope, 供圓示使用
+    for sc in self.scopes:
+        sc["all_stmts"] = self.all_stmts[sc["id"]]
+
+    # 控制流邊: 依作用域樹遍歷; if/else 為菱形 (兄弟, 無 sequential 邊)
     def walk(scope):
-        first = None
-        prev = None
-        for kind, ref in scope["items"]:
+        firsts = []
+        prevs = []
+        items = scope["items"]
+        i = 0
+        n = len(items)
+        while i < n:
+            kind, ref = items[i]
             if kind == "stmt":
-                if first is None:
-                    first = ref
-                if prev:
-                    self.facts.append(("edge", (prev, ref)))
-                prev = ref
+                if prevs:
+                    for p in prevs:
+                        self.facts.append(("edge", (p, ref)))
+                else:
+                    firsts.append(ref)
+                prevs = [ref]
+                i += 1
+                continue
+            if not self.all_stmts.get(ref):
+                i += 1
+                continue
+            child = by_id[ref]
+            else_id = None
+            if child["kind"] == "if" and i + 1 < n:
+                k2, r2 = items[i + 1]
+                if k2 == "scope" and by_id[r2]["kind"] == "else":
+                    else_id = r2
+            cf, cl = walk(child)
+            i += 1
+            ef, el = [], []
+            if else_id:
+                i += 1
+                if self.all_stmts.get(else_id):
+                    ef, el = walk(by_id[else_id])
+            entries = list(cf) + list(ef)
+            exits = (list(cl) + list(el)) if else_id else list(cl)
+            if prevs:
+                for p in prevs:
+                    for e in entries:
+                        if e:
+                            self.facts.append(("edge", (p, e)))
             else:
-                if not self.all_stmts[ref]:
-                    continue
-                f2, l2 = walk(by_id[ref])
-                if first is None:
-                    first = f2
-                if prev:
-                    self.facts.append(("edge", (prev, f2)))
-                prev = l2
-        return first, prev
+                firsts.extend([e for e in entries if e])
+            if exits:
+                prevs = [e for e in exits if e]
+        return firsts, prevs
     walk(self.scopes[0])   # world → 各 fn 子樹
 
     # 迴圈後向邊 (子樹最後 → 最前)
@@ -575,6 +791,10 @@ def _build_graph(self):
         self.facts.append(("same", (sc["id"], sc["id"])))
         if sc["parent"] is not None:
             self.facts.append(("parent", (sc["id"], sc["parent"])))
+        if sc["kind"] == "if":
+            self.facts.append(("if_scope", (sc["id"],)))
+        elif sc["kind"] == "else":
+            self.facts.append(("else_scope", (sc["id"],)))
     # 作用域終端 (lexical 活度等級用)
     for sc in self.scopes:
         all_s = self.all_stmts[sc["id"]]
@@ -587,16 +807,38 @@ Program._build_graph = _build_graph
 # 3. 檢查器
 # ================================================================
 ERROR_CODES = {
-    "eclash":    ("E01", "紅弧交越: 兩借用重疊且至少一者為 mut (~ E0499/E0502)"),
-    "ewrite":    ("E02", "借用活躍期間寫入被借者 (~ E0506)"),
-    "eread":     ("E03", "mut 借用活躍期間直接讀取被借者 (~ E0503)"),
-    "edangle":   ("E04", "使用點落在被借者作用域之外 (~ E0597)"),
-    "eadrop":    ("E05", "drop 後使用"),
-    "emove":     ("E06", "move 後使用 (~ E0382)"),
-    "eloanmove": ("E07", "借用活躍期間 move 被借者 (~ E0505)"),
-    "eloandrop": ("E08", "借用活躍期間 drop 被借者"),
-    "erefuse":   ("E09", "別名層衝突: 參考 t 使用期間, t 自身被借用活躍 (~ E0502/E0499 別名層)"),
-    "ereturn":   ("E10", "回傳參考之被借者不活得比呼叫者久 (~ E0106)"),
+    "eclash":       ("E01", "紅弧交越: 兩借用重疊且至少一者為 mut (~ E0499/E0502)"),
+    "ewrite":       ("E02", "借用活躍期間寫入被借者 (~ E0506)"),
+    "eread":        ("E03", "mut 借用活躍期間直接讀取被借者 (~ E0503)"),
+    "edangle":      ("E04", "使用點落在被借者作用域之外 (~ E0597)"),
+    "eadrop":       ("E05", "drop 後使用"),
+    "emove":        ("E06", "move 後使用 (~ E0382)"),
+    "eloanmove":    ("E07", "借用活躍期間 move 被借者 (~ E0505)"),
+    "eloandrop":    ("E08", "借用活躍期間 drop 被借者"),
+    "erefuse":      ("E09", "別名層衝突: 參考 t 使用期間, t 自身被借用活躍 (~ E0502/E0499 別名層)"),
+    "ereturn":      ("E10", "回傳參考之被借者不活得比呼叫者久 (~ E0106)"),
+    "eimmut":       ("E11", "寫入不可變地方 (~ E0384)"),
+    "enotmut":      ("E12", "對不可變地方作 mut 出借 (~ E0596)"),
+    "eassignsh":    ("E13", "經共享參考寫入 (~ E0594)"),
+    "emoveout":     ("E14", "經參考移出 (~ E0507)"),
+    "etemp":        ("E15", "暫存借用被非緊鄰陳述使用 (~ E0716 保守)"),
+    "eescape":      ("E16", "把指向局部的參考存入槽 (~ E0521)"),
+    "estoretemp":   ("E17", "把指向暫存的參考存入槽 (~ E0716)"),
+    "ebranchmove":  ("E18", "if 分支內 move 後於分支外使用 (~ E0382)"),
+    "edoubledrop":  ("E19", "重複 drop (無中間重初始化)"),
+    "edropmoved":   ("E20", "move 後再 drop (~ E0382)"),
+    "ealiascyc":    ("E21", "存入造成別名環 (槽指向自身)"),
+    "eimmfield":    ("E22", "寫入不可變地方之子字段 (~ E0594)"),
+    "enotmutfield": ("E23", "對不可變字段作 mut 出借 (~ E0596)"),
+    "eelsejoin":    ("E24", "else 分支內 move 後於分支外使用 (~ E0382)"),
+    "ecallmut":     ("E25", "呼叫讀取 mut 借用活躍之路徑 (~ E0503)"),
+    "ecallmove":    ("E26", "呼叫消耗後再使用 (~ E0382)"),
+    "ecalloan":     ("E27", "借用活躍期間呼叫消耗被借者 (~ E0505)"),
+    "erettemp":     ("E28", "回傳指向暫存的參考 (~ E0515)"),
+    "euninit":      ("E29", "使用尚未初始化的洞 (~ E0381)"),
+    "euninitret":   ("E30", "移出尚未初始化的洞 (~ E0381)"),
+    "eparamimmut":  ("E31", "寫入不可變參數 (~ E0594)"),
+    "eparamnotmut": ("E32", "對不可變參數作 mut 出借 (~ E0596)"),
 }
 CODE2PRED = {v[0]: k for k, v in ERROR_CODES.items()}
 CODE2MSG = {v[0]: v[1] for k, v in ERROR_CODES.items()}
@@ -621,7 +863,8 @@ def _facts_for_fn(self, f):
     out = []
     for pred, tup in self.facts:
         if pred in ("stmt", "stmt_of", "lend", "use_ref", "read", "write",
-                    "move", "drop", "ret", "decl"):
+                    "move", "drop", "ret", "decl", "deref_write", "deref_move",
+                    "call", "callmv", "store"):
             if tup[0] in st:
                 out.append((pred, tup))
         elif pred == "edge":
@@ -633,11 +876,15 @@ def _facts_for_fn(self, f):
         elif pred in ("parent", "same"):
             if all(x in sub or x == self.root for x in tup):
                 out.append((pred, tup))
-        elif pred == "scope_last":
+        elif pred in ("scope_last", "if_scope", "else_scope"):
             if tup[0] in sub:
                 out.append((pred, tup))
         elif pred == "borrow_of":
             if self.scope_of.get(tup[0]) in sub:
+                out.append((pred, tup))
+        elif pred in ("imm", "temp", "hole", "param"):
+            sc = self.scope_of.get(tup[0])
+            if sc in sub or sc == self.root:
                 out.append((pred, tup))
     return out
 
@@ -703,6 +950,168 @@ def print_proof(dl, pred, tup, out, depth=0, maxd=6, seen=None):
         out.append(indent + fmt_fact(pred, tup) + "   (事實)")
 
 # ================================================================
+# 4b. 幾何 API (P-G1–P-G4: 法則可測、圖=事實、代理可操作)
+# ================================================================
+# 錯誤碼 → 法則編號 (GEOMETRY.md §5)
+LAW_OF = {
+    "E01": 1, "E09": 1,
+    "E04": 2, "E10": 2, "E16": 2, "E17": 2, "E28": 2,
+    "E05": 3, "E06": 3, "E15": 3, "E18": 3, "E19": 3, "E20": 3,
+    "E24": 3, "E26": 3, "E29": 3, "E30": 3,
+    "E02": 4, "E03": 4, "E25": 4,
+    "E11": 10, "E12": 10, "E13": 10, "E14": 10, "E07": 10, "E08": 10,
+    "E22": 10, "E23": 10, "E27": 10, "E31": 10, "E32": 10,
+    "E21": 9,
+}
+LAW_NAME = {
+    0: "法則⓪ 同構 (圖不立法)",
+    1: "法則① 紅弧孤立",
+    2: "法則② 弧在圓內",
+    3: "法則③ 點序守紀",
+    4: "法則④ 區間著色",
+    5: "法則⑤ 同心圓包含",
+    6: "法則⑥ 後向邊閉包",
+    7: "法則⑦ 菱形不串線",
+    8: "法則⑧ 路徑前綴衝突",
+    9: "法則⑨ 別名鏈投影",
+    10: "法則⑩ 權限點",
+}
+
+
+def scope_depth(pr, sc):
+    d, c = 0, sc
+    by_id = {s["id"]: s for s in pr.scopes}
+    while c["parent"] is not None:
+        c = by_id[c["parent"]]
+        d += 1
+    return d
+
+
+def scope_rx(pr, sc):
+    return 268 - 34 * scope_depth(pr, sc)
+
+
+def collect_arcs(pr, dl):
+    """每條活借貸 → {L,E,K,T,Q,I}；I = onregion 點集 (法則 0 的區間)。"""
+    idx = pr.idx
+    out = []
+    for (L, Q, T, K) in sorted(dl.facts.get("lend", ()), key=lambda t: idx.get(t[0], 0)):
+        ends = [t[2] for t in dl.facts.get("span_end", ()) if t[0] == L and t[1] == T]
+        if not ends:
+            continue
+        E = max(ends, key=lambda s: idx[s])
+        I = {q for (l, q) in dl.facts.get("onregion", ()) if l == L}
+        out.append(dict(L=L, E=E, K=K, T=T, Q=Q, I=I))
+    return out
+
+
+def textual_span(pr, L, E):
+    """同一 fn 內、τ(L)…τ(E) 的陳述 (含端點)。"""
+    i0, i1 = pr.idx[L], pr.idx[E]
+    fn = getattr(pr, "fn_of_stmt", {}).get(L)
+    out = []
+    for sid, _t, _sc in pr.stmts:
+        i = pr.idx[sid]
+        if i0 <= i <= i1 and (fn is None or getattr(pr, "fn_of_stmt", {}).get(sid) == fn):
+            out.append(sid)
+    return out
+
+
+def arc_has_hole(pr, arc):
+    """NLL 空洞: 文本跨度內有點不在 I(a) (法則 7 / P-G2)。"""
+    span = textual_span(pr, arc["L"], arc["E"])
+    return any(s not in arc["I"] for s in span)
+
+
+def conflicting(qa, qb):
+    return qa == qb or _field_prefix(qa, qb) or _field_prefix(qb, qa)
+
+
+def law1_overlap_pairs(pr, dl):
+    """法則 1: 路徑衝突且 ≥1 mut 且 I 相交的弧對。"""
+    arcs = collect_arcs(pr, dl)
+    pairs = []
+    for i in range(len(arcs)):
+        for j in range(i + 1, len(arcs)):
+            a, b = arcs[i], arcs[j]
+            if a["K"] != "mut" and b["K"] != "mut":
+                continue
+            if not conflicting(a["Q"], b["Q"]):
+                continue
+            inter = a["I"] & b["I"]
+            if inter:
+                pairs.append((a, b, inter))
+    return pairs
+
+
+def eclash_pairs(pr, dl, errors):
+    """僅 eclash 證明所對應的弧對 (法則 0: ✕ 由證明驅動)。"""
+    clash_sids = {sid for code, sid, _t in errors if code == "E01"}
+    if not clash_sids:
+        return []
+    out = []
+    seen = set()
+    for a, b, inter in law1_overlap_pairs(pr, dl):
+        if a["L"] in clash_sids or b["L"] in clash_sids:
+            key = tuple(sorted((a["L"], b["L"])))
+            if key not in seen:
+                seen.add(key)
+                out.append((a, b, inter))
+    return out
+
+
+def geometry_report(pr, dl, code, sid):
+    """P-G4: 法則違反的可操作幾何報告 (區間、交集、縮弧/移點/升圓)。"""
+    law = LAW_OF.get(code)
+    lines = []
+    if law is None:
+        return None, lines
+    lines.append(LAW_NAME[law])
+    arcs = collect_arcs(pr, dl)
+    idx = pr.idx
+    if law == 1:
+        for a, b, inter in law1_overlap_pairs(pr, dl):
+            ia = "{" + ",".join(sorted(a["I"], key=lambda s: idx[s])) + "}"
+            ib = "{" + ",".join(sorted(b["I"], key=lambda s: idx[s])) + "}"
+            ii = "{" + ",".join(sorted(inter, key=lambda s: idx[s])) + "}"
+            lines.append("  弧 %s : %s%s  I = %s" % (
+                a["T"], "&mut " if a["K"] == "mut" else "&", a["Q"], ia))
+            lines.append("  弧 %s : %s%s  I = %s" % (
+                b["T"], "&mut " if b["K"] == "mut" else "&", b["Q"], ib))
+            lines.append("  I(a) ∩ I(b) = %s ≠ ∅" % ii)
+            first, second = (a, b) if idx[a["L"]] <= idx[b["L"]] else (b, a)
+            # 縮短先出借者: 把終端使用移到後出借點之前
+            pred = None
+            for s, _t, _sc in pr.stmts:
+                if idx[s] < idx[second["L"]] and s in first["I"]:
+                    pred = s
+            if pred and pred != first["E"]:
+                lines.append("  修: 縮弧 — 把 %s 的終端使用從 %s 移到 %s (後弧出借點 %s 之前)" % (
+                    first["T"], first["E"], pred, second["L"]))
+            else:
+                lines.append("  修: 縮弧 / clone — 令兩弧不再重疊")
+    elif law == 2:
+        lines.append("  點 %s 的使用／回傳／存槽穿過被借者作用域圓" % sid)
+        lines.append("  修: 升圓 — 令被借者來自參數 (ROOT), 或把使用移進圓內")
+    elif law == 3:
+        lines.append("  點 %s 落在消耗點之後、重初始化之前 (有效區間外)" % sid)
+        lines.append("  修: 移點 — 先使用再消耗, 或消耗後先 set 再讀")
+    elif law == 4:
+        on = [a for a in arcs if sid in a["I"]]
+        if on:
+            lines.append("  點 %s 上的活弧: %s" % (
+                sid, "; ".join("%s(:%s)" % (a["T"], a["K"]) for a in on)))
+        lines.append("  修: 縮弧 — 令該點不再落在衝突弧跨內")
+    elif law == 9:
+        lines.append("  別名鏈投影成環 (槽指向自身)")
+        lines.append("  修: 不要把指向槽自身的參考存回槽")
+    elif law == 10:
+        lines.append("  點 %s 上的操作超出該弧允許的權限" % sid)
+        lines.append("  修: 改經引用存取, 或把操作移出弧跨")
+    return law, lines
+
+
+# ================================================================
 # 5. 圓示 (縱點節圖) SVG 渲染器
 # ================================================================
 AX = 300          # 縱軸 x
@@ -731,12 +1140,52 @@ def _seg_hit(a, b, c, d):
 def _sample(pts, n=28):
     return [(_bez(*pts, i / n), _bez(*pts, (i + 1) / n)) for i in range(n)]
 
+def _stmt_at_y(pr, yy):
+    n = len(pr.stmts)
+    if n == 0:
+        return None
+    i = int(round((yy - Y0) / float(DY)))
+    return pr.stmts[max(0, min(n - 1, i))][0]
+
+def _draw_arc_with_holes(svg, pr, p0, p1, p2, p3, I, col, w):
+    """實心只畫 I(a) 上的點; 文本跨度內的空洞改虛線 (P-G2)。"""
+    n_samp = 36
+    samples = [_bez(p0, p1, p2, p3, i / float(n_samp)) for i in range(n_samp + 1)]
+
+    def live_at(pt):
+        sid = _stmt_at_y(pr, pt[1])
+        return sid is None or sid in I
+
+    if all(live_at(pt) for pt in samples):
+        svg.append('<path d="M %.0f %.0f C %.0f %.0f, %.0f %.0f, %.0f %.0f" fill="none" stroke="%s" stroke-width="%s"/>' % (
+            p0[0], p0[1], p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], col, w))
+        return
+    runs = []
+    for pt in samples:
+        lv = live_at(pt)
+        if not runs or runs[-1][0] != lv:
+            runs.append((lv, [pt]))
+        else:
+            runs[-1][1].append(pt)
+    for k in range(1, len(runs)):
+        prev = runs[k - 1][1][-1]
+        if runs[k][1][0] != prev:
+            runs[k] = (runs[k][0], [prev] + runs[k][1])
+    for live, pts in runs:
+        if len(pts) < 2:
+            continue
+        d = "M %.1f %.1f" % pts[0]
+        for p in pts[1:]:
+            d += " L %.1f %.1f" % p
+        dash = "" if live else ' stroke-dasharray="6 5"'
+        svg.append('<path d="%s" fill="none" stroke="%s" stroke-width="%s"%s/>' % (d, col, w, dash))
+
 def render_svg(pr, dl, errors, title, liveness):
     idx = pr.idx
     n = len(pr.stmts)
     y = lambda i: Y0 + DY * i
-    W = 780
-    H = Y0 + DY * (n - 1) + 150
+    W = 860
+    H = Y0 + DY * (n - 1) + 190
     svg = []
     svg.append('<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" font-family="monospace">' % (W, H, W, H))
     svg.append('<rect width="100%" height="100%" fill="#0f172a"/>')
@@ -764,13 +1213,14 @@ def render_svg(pr, dl, errors, title, liveness):
             d += 1
         return d
     for sc in pr.scopes:
-        if sc["kind"] == "world" or not sc.get("all_stmts"):
+        sc_stmts = sc.get("all_stmts") or pr.all_stmts.get(sc["id"]) or []
+        if sc["kind"] == "world" or not sc_stmts:
             continue
-        ys = [y(idx[s]) for s in sc["all_stmts"]]
+        ys = [y(idx[s]) for s in sc_stmts]
         cy = (min(ys) + max(ys)) / 2
         ry = (max(ys) - min(ys)) / 2 + 34
         rx = 268 - 34 * depth_of(sc)
-        col = {"fn": "#64748b", "block": "#64748b", "loop": "#8b5cf6", "if": "#0ea5e9"}[sc["kind"]]
+        col = {"fn": "#64748b", "block": "#64748b", "loop": "#8b5cf6", "if": "#0ea5e9", "else": "#f59e0b"}.get(sc["kind"], "#64748b")
         svg.append('<ellipse cx="%d" cy="%.0f" rx="%d" ry="%.0f" fill="none" stroke="%s" stroke-width="1.5" stroke-dasharray="7 5"/>' % (AX, cy, rx, ry, col))
         lab = sc["kind"] + (" 迴圈 (含後向邊)" if sc["kind"] == "loop" else "")
         if sc["kind"] == "fn" and sc.get("name"):
@@ -779,9 +1229,10 @@ def render_svg(pr, dl, errors, title, liveness):
 
     # 迴圈後向邊 (左側虛線迴路 + 箭頭)
     for sc in pr.loop_scopes:
-        if not sc.get("all_stmts"):
+        sc_stmts = sc.get("all_stmts") or pr.all_stmts.get(sc["id"]) or []
+        if not sc_stmts:
             continue
-        yf, yl = y(idx[sc["all_stmts"][0]]), y(idx[sc["all_stmts"][-1]])
+        yf, yl = y(idx[sc_stmts[0]]), y(idx[sc_stmts[-1]])
         xl = AX - 30
         svg.append('<path d="M %d %d L %d %d L %d %d L %d %d" fill="none" stroke="#8b5cf6" stroke-width="1.5" stroke-dasharray="4 4"/>' % (AX - 8, yl, xl, yl, xl, yf, AX - 16, yf))
         svg.append('<polygon points="%d,%d %d,%d %d,%d" fill="#8b5cf6"/>' % (AX - 8, yf, AX - 18, yf - 4, AX - 18, yf + 4))
@@ -816,6 +1267,8 @@ def render_svg(pr, dl, errors, title, liveness):
                 break
             cur, guard = nxt[0], guard + 1
         return cur
+    collected = collect_arcs(pr, dl)
+    I_of = {(a["L"], a["T"]): a["I"] for a in collected}
     lend_facts = sorted(dl.facts.get("lend", ()), key=lambda t: idx[t[0]])
     lanes, arcs = {}, []
     for (L, Q, T, K) in lend_facts:
@@ -836,30 +1289,55 @@ def render_svg(pr, dl, errors, title, liveness):
         p2 = (AX + bulge, y(idx[E]))
         col = "#ef4444" if K == "mut" else "#3b82f6"
         w = 3.5 if K == "mut" else 2
-        svg.append('<path d="M %.0f %.0f C %.0f %.0f, %.0f %.0f, %.0f %.0f" fill="none" stroke="%s" stroke-width="%s"/>' % (p0[0], p0[1], p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], col, w))
+        I = I_of.get((L, T), set())
+        _draw_arc_with_holes(svg, pr, p0, p1, p2, p3, I, col, w)
         mid = _bez(p0, p1, p2, p3, 0.5)
         svg.append('<text x="%.0f" y="%.0f" fill="%s" font-size="11">%s : %s %s</text>' % (mid[0] + 8, mid[1] + 4, col, esc(T), "&amp;mut" if K == "mut" else "&amp;", esc(Q)))
-        arcs.append(dict(L=L, E=E, K=K, pts=(p0, p1, p2, p3), T=T, Q=Q))
+        arcs.append(dict(L=L, E=E, K=K, pts=(p0, p1, p2, p3), T=T, Q=Q, I=I))
 
-    # 弧交越標記 (幾何直覺; 真值以錯誤事實為準)
+    # ✕ 僅由 eclash 證明驅動 (法則 0 / P-G1); 無幾何交點則標在首個重疊點
     marks = []
-    for i in range(len(arcs)):
-        for j in range(i + 1, len(arcs)):
-            a, b = arcs[i], arcs[j]
-            if a["K"] != "mut" and b["K"] != "mut":
-                continue
-            for s1 in _sample(a["pts"]):
-                for s2 in _sample(b["pts"]):
-                    hit = _seg_hit(s1[0], s1[1], s2[0], s2[1])
-                    if hit and all(abs(hit[0] - m[0]) + abs(hit[1] - m[1]) > 8 for m in marks):
-                        marks.append(hit)
+    vis = {(a["L"], a["T"]): a for a in arcs}
+    for a, b, inter in eclash_pairs(pr, dl, errors):
+        va, vb = vis.get((a["L"], a["T"])), vis.get((b["L"], b["T"]))
+        hit = None
+        if va and vb:
+            for s1 in _sample(va["pts"]):
+                for s2 in _sample(vb["pts"]):
+                    cand = _seg_hit(s1[0], s1[1], s2[0], s2[1])
+                    if cand:
+                        hit = cand
+                        break
+                if hit:
+                    break
+        if hit is None:
+            first = min(inter, key=lambda s: idx[s]) if inter else a["L"]
+            hit = (AX + 72, y(idx[first]))
+        if all(abs(hit[0] - m[0]) + abs(hit[1] - m[1]) > 8 for m in marks):
+            marks.append(hit)
     for (mx, my) in marks:
         svg.append('<circle cx="%.0f" cy="%.0f" r="7" fill="none" stroke="#fbbf24" stroke-width="2"/>' % (mx, my))
         svg.append('<text x="%.0f" y="%.0f" fill="#fbbf24" font-size="12" text-anchor="middle">✕</text>' % (mx, my + 4))
 
-    # E10 逸出箭頭 (弧逸出作用域圓): 箭頭穿出該陳述之函數作用域圓
+    # E18/E24 maybe-live (RustOwl 波浪): 消耗點 → join 後使用, 虛線琥珀
     for code, sid, _t in fail:
-        if code != "E10":
+        if code not in ("E18", "E24") or sid not in idx:
+            continue
+        moves = [t[0] for pred, t in pr.facts
+                 if pred == "move" and t[0] in idx and idx[t[0]] < idx[sid]]
+        if not moves:
+            continue
+        mv = max(moves, key=lambda s: idx[s])
+        y0, y1 = y(idx[mv]), y(idx[sid])
+        xl = AX - 52
+        svg.append('<path d="M %d %d C %d %d, %d %d, %d %d" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="3 4"/>' % (
+            AX - 10, y0, xl, y0, xl, y1, AX - 10, y1))
+        svg.append('<circle cx="%d" cy="%d" r="8" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="3 3"/>' % (AX, y1))
+        svg.append('<text x="%d" y="%d" fill="#f59e0b" font-size="10" text-anchor="end">可能活 %s</text>' % (xl - 4, (y0 + y1) / 2 + 3, code))
+
+    # 逸出箭頭 (弧逸出作用域圓): E10/E16/E28/E04
+    for code, sid, _t in fail:
+        if code not in ("E10", "E16", "E28", "E04"):
             continue
         yy = y(idx[sid])
         top = yy - 40
@@ -890,6 +1368,8 @@ def render_svg(pr, dl, errors, title, liveness):
     svg.append('<text x="500" y="%d" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>' % (ly + 4))
     svg.append('<text x="24" y="%d" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>' % (ly + 26))
     svg.append('<text x="24" y="%d" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>' % (ly + 46))
+    svg.append('<text x="24" y="%d" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>' % (ly + 66))
+    svg.append('<text x="24" y="%d" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>' % (ly + 86))
     svg.append('</svg>')
     return "\n".join(svg)
 
@@ -985,7 +1465,7 @@ def run_one(path, liveness, outdir, quiet=False):
 # 代理工具: --rules (規格) / --explain (錯誤 → 規則原文+證明+幾何+修法)
 # ================================================================
 RULE_LEGEND = """\
-弦律規則規格 (rules.dl + liveness_*.dl 為完整可執行規格; 此為速覽)
+弦律規則規格 v0.4 (rules.dl + liveness_*.dl 為完整可執行規格; 此為速覽)
 錯誤代碼            語義                              ~ rustc
 E01 eclash          路徑衝突之兩借用重疊, ≥1 mut      E0499/E0502
 E02 ewrite          借用活躍期寫入被借者(含子字段)    E0506
@@ -997,6 +1477,28 @@ E07 eloanmove       借用活躍期 move 被借者            E0505
 E08 eloandrop       借用活躍期 drop 被借者
 E09 erefuse         別名層衝突 (使用點攔截 2-phase)   E0502/E0499
 E10 ereturn         回參考之被借者不活得比呼叫者久    E0106/E0515
+E11 eimmut          寫入不可變地方                    E0384
+E12 enotmut         對不可變地方作 mut 出借           E0596
+E13 eassignsh       經共享參考寫入                    E0594
+E14 emoveout        經參考移出                        E0507
+E15 etemp           暫存借用被非緊鄰陳述使用          E0716
+E16 eescape         把指向局部的參考存入槽            E0521
+E17 estoretemp      把指向暫存的參考存入槽            E0716
+E18 ebranchmove     if 內 move 後於分支外使用         E0382
+E19 edoubledrop     重複 drop
+E20 edropmoved      move 後再 drop                    E0382
+E21 ealiascyc       存入造成別名環
+E22 eimmfield       寫入不可變字段                    E0594
+E23 enotmutfield    對不可變字段作 mut 出借           E0596
+E24 eelsejoin       else 內 move 後於分支外使用       E0382
+E25 ecallmut        呼叫讀取 mut 借用活躍之路徑       E0503
+E26 ecallmove       呼叫消耗後再使用                  E0382
+E27 ecallloan       借用活躍期呼叫消耗被借者          E0505
+E28 erettemp        回傳指向暫存的參考                E0515
+E29 euninit         使用尚未初始化的洞                E0381
+E30 euninitret      移出尚未初始化的洞                E0381
+E31 eparamimmut     寫入不可變參數                    E0594
+E32 eparamnotmut    對不可變參數作 mut 出借           E0596
 活度等級  --liveness: nll (預設, 參考終端使用+別名閉包) | referent (被借者終端使用) | lexical (作用域終端)
 """
 
@@ -1011,6 +1513,28 @@ FIX_HINTS = {
     "E08": "將 drop 移到該借用最終使用之後",
     "E09": "拆成兩句: 先終結對該引用的借用 (其最終使用), 再排他使用該引用 (2-phase 於陳述粒度不可表達)",
     "E10": "讓被借者來自參數 (呼叫者所有), 或回傳擁有值 (clone)",
+    "E11": "把地方改為可變 (let x 而非 let imm x), 或不要寫入",
+    "E12": "改用共享借用 (&), 或把地方改為可變",
+    "E13": "把參考改為 &mut, 或不要經共享參考寫入",
+    "E14": "改為 clone/copy, 或先 mem::replace 再移出",
+    "E15": "把暫存綁進具名地方 (let t), 或把使用緊貼出借句",
+    "E16": "只存入指向參數/呼叫者的參考, 或改存擁有值",
+    "E17": "先把暫存綁進具名地方再出借",
+    "E18": "兩個分支都 move 並在分支內用完, 或分支外先重初始化",
+    "E19": "每個值只 drop 一次; 第二次前先 set 重初始化",
+    "E20": "move 後不要再 drop; 需要時先 set 重初始化",
+    "E21": "不要把指向槽自身的參考存回槽 (自引用結構)",
+    "E22": "把整體改為可變, 或不要寫子字段",
+    "E23": "對字段改用共享借用, 或把整體改為可變",
+    "E24": "與 E18 相同: 分支外使用前重初始化, 或把使用留在分支內",
+    "E25": "先結束 mut 借用再呼叫, 或改經該 mut 參考傳遞",
+    "E26": "呼叫前 clone, 或呼叫後 set 重初始化再使用",
+    "E27": "先結束借用再把值移入呼叫",
+    "E28": "回傳擁有值, 或讓被借者來自參數",
+    "E29": "使用前先 set 初始化該洞",
+    "E30": "移出前先 set 初始化該洞",
+    "E31": "把參數改為可變 (去掉 imm), 或不要寫入參數",
+    "E32": "對參數改用共享借用, 或把參數改為可變",
 }
 
 def _rule_src(dl, pred):
@@ -1063,6 +1587,11 @@ def explain_file(path, liveness):
             geo = _geometry_hint(dlf, sid, pr.idx)
             if geo:
                 print("  幾何: 點 %s 落在弧跨內: %s" % (sid, "; ".join(geo)))
+            law, glines = geometry_report(pr, dlf, code, sid)
+            if glines:
+                print("  幾何違反: %s" % glines[0])
+                for ln in glines[1:]:
+                    print(ln)
         print("  修法: %s" % FIX_HINTS.get(code, ""))
 
 def main():

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="448" viewBox="0 0 860 448" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 2 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r24_eelsejoin.cl</text>
+<line x1="300" y1="70" x2="300" y2="284" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="177" rx="234" ry="115" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r24</text>
+<ellipse cx="300" cy="150" rx="200" ry="34" fill="none" stroke="#0ea5e9" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="109" fill="#0ea5e9" font-size="11" text-anchor="middle">if</text>
+<ellipse cx="300" cy="204" rx="200" ry="34" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="163" fill="#f59e0b" font-size="11" text-anchor="middle">else</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#94a3b8"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  set x</text>
+<circle cx="300" cy="204" r="5" fill="#94a3b8"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  mv x</text>
+<circle cx="300" cy="258" r="5" fill="#ef4444"/>
+<circle cx="300" cy="258" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  use x</text>
+<path d="M 290 204 C 248 204, 248 258, 290 258" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="3 4"/>
+<circle cx="300" cy="258" r="8" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="3 3"/>
+<text x="244" y="234" fill="#f59e0b" font-size="10" text-anchor="end">可能活 E24</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E06 @ s4  move 後使用 (~ E0382)</text>
+<text x="486" y="79" fill="#fca5a5" font-size="11">E24 @ s4  else 分支內 move 後於分支外使用 (~ E0382)</text>
+<line x1="24" y1="314" x2="64" y2="314" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="318" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="314" x2="280" y2="314" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="318" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="314" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="318" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="340" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="360" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="380" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="400" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg>

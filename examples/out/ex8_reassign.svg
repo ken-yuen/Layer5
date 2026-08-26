@@ -1,9 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="780" height="408" viewBox="0 0 780 408" font-family="monospace">
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="448" viewBox="0 0 860 448" font-family="monospace">
 <rect width="100%" height="100%" fill="#0f172a"/>
-<rect x="12" y="10" width="756" height="30" rx="6" fill="#14532d"/>
-<text x="24" y="30" fill="#bbf7d0" font-size="15" font-weight="bold">✓ PASS — 無違規  ·  圓示 Chord Diagram · 弦律 v0.3 · liveness=nll</text>
-<text x="760" y="30" fill="#64748b" font-size="12" text-anchor="end">ex8_reassign.cl</text>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#14532d"/>
+<text x="24" y="30" fill="#bbf7d0" font-size="15" font-weight="bold">✓ PASS — 無違規  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">ex8_reassign.cl</text>
 <line x1="300" y1="70" x2="300" y2="284" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="177" rx="234" ry="115" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn ex8</text>
 <circle cx="300" cy="96" r="5" fill="#94a3b8"/>
 <text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
 <circle cx="300" cy="150" r="5" fill="#94a3b8"/>
@@ -20,4 +22,6 @@
 <text x="500" y="318" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
 <text x="24" y="340" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
 <text x="24" y="360" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="380" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="400" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
 </svg>
