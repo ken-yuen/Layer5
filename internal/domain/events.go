@@ -143,3 +143,18 @@ type FileChangeBatch struct {
 	Files   []FileChangeFile `json:"files"`
 	Backend string           `json:"backend,omitempty"` // inotify|poll（事件來源後端）
 }
+
+// LatestSnapshotEpoch 回傳事件史中最新 workspace.snapshot 的 epoch；
+// 空史或無快照時回傳 ""。（ykc-atom 與 ykc-serve 共用的唯一實作——
+// 2026-08-28 審計前兩者為逐字重複。）
+func LatestSnapshotEpoch(events []Envelope) string {
+	var epoch string
+	var at time.Time
+	for _, e := range events {
+		if e.Kind == EventWorkspaceSnapshot && e.At.After(at) {
+			epoch = e.Epoch
+			at = e.At
+		}
+	}
+	return epoch
+}

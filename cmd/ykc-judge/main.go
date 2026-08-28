@@ -167,8 +167,17 @@ func runJudge(dir, key, kbPath string) {
 		Signature:         rustutil.Sign(chainHash, key),
 		Overall:           overall,
 	}
-	b, _ := json.MarshalIndent(rcpt, "", "  ")
-	_ = os.WriteFile(filepath.Join(ledgerDir, "receipt.json"), b, 0o644)
+	// 收據是 L4 閉環的產品本體：寫不進磁碟就不是成功——靜默吞錯
+	// 會讓人讀摘要顯示成功而收據不存在（2026-08-28 審計修復）。
+	b, err := json.MarshalIndent(rcpt, "", "  ")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ykc-judge: 收據序列化失敗:", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(filepath.Join(ledgerDir, "receipt.json"), b, 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "ykc-judge: 收據寫入失敗:", err)
+		os.Exit(1)
+	}
 	mustAppendFact(led, "receipt.issue", "ykc-judge", map[string]any{"overall": overall, "chain_hash": chainHash})
 
 	// ── 人讀摘要 ──

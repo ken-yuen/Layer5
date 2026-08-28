@@ -119,7 +119,7 @@ worker 的 25 MiB 預算。詳見 `YKC_20_能力包解耦與組合架構.md` 與
 
 ## YKC 報告雙 CLI（健檢 + 重構）
 
-根目錄的 25 份系列報告（`YKC_00…YKC_24`）+ 3 份奠基文檔由兩個零依賴 CLI 管理（共用 `internal/reports`）：
+根目錄的 28 份系列報告（`YKC_00…YKC_27`）+ 3 份奠基文檔由兩個零依賴 CLI 管理（共用 `internal/reports`）：
 
 ```bash
 # 報告健檢（ykc-reports）：解析元數據 + 審計
@@ -154,6 +154,7 @@ worker 的 25 MiB 預算。詳見 `YKC_20_能力包解耦與組合架構.md` 與
 | **`YKC_24_主動rustc預編譯報告.md`** | **主動預譯預設、啟動全掃、檔案變更觸發、單飛合併、sandbox fail-closed、帳本與面板狀態** |
 | **`YKC_25_全庫審計修復與報告雙CLI實作報告.md`** | **全庫審計（4 代碼錯/3 債/9 文檔錯漏全修）+ 報告雙 CLI（ykc-reports 健檢 / ykc-reportbook 確定性重構）** |
 | **`YKC_26_語法幾何與重寫理論地基報告.md`** | **T-20 理論地基：表面語法樹/抽象代數九律/幾何拓撲（弦圖）/重寫系統（Newman）/自動機/形式語言；CL0+R₀ 雙載體** |
+| **`YKC_27_專案現況審計與競品價值分析報告.md`** | **審計第二輪（judge 收據修復/latestEpoch 收斂/快照恢復 runbook）+ 底層邏輯引擎評分 7.6/10 + 競品矩陣（shipgate/Shipmoor）與可吸收項（in-toto/Kani/Proof-or-Stop）** |
 | **`YKC_00_構圖與路線圖.md`** | **總體構圖 + 里程碑 + 進度追蹤表（進度參照物）** |
 | **`YKC_01_容器化方案分析.md`** | Docker 類替代品深度分析（Podman/gVisor/Firecracker/Nix…）與建議 |
 | `YKC_YieldKeyCode_深度分析報告.md` | 技術五層、依賴清單、整體評分（v1.0） |

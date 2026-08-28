@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"ykc/internal/domain"
 	"ykc/internal/enforcement"
@@ -122,7 +121,7 @@ func cmdClaim(args []string) error {
 	if err != nil {
 		return err
 	}
-	epoch := latestEpoch(history)
+	epoch := domain.LatestSnapshotEpoch(history)
 	claim := domain.AgentClaim{Kind: domain.AgentClaimKind(*kind), Text: *text}
 	claimEvent, err := domain.NewEnvelope(domain.EventAgentClaim, epoch, mustAbs(*root), claim)
 	if err != nil {
@@ -188,7 +187,7 @@ func cmdSmoke(args []string) error {
 	if err != nil {
 		return err
 	}
-	epoch := latestEpoch(history)
+	epoch := domain.LatestSnapshotEpoch(history)
 	specs := smoke.DefaultRustSmoke(mustAbs(*root))
 	if *timeout > 0 {
 		for i := range specs {
@@ -252,18 +251,6 @@ func cmdSyncLedger(args []string) error {
 		return err
 	}
 	return printJSON(res)
-}
-
-func latestEpoch(events []domain.Envelope) string {
-	var epoch string
-	var at time.Time
-	for _, e := range events {
-		if e.Kind == domain.EventWorkspaceSnapshot && e.At.After(at) {
-			epoch = e.Epoch
-			at = e.At
-		}
-	}
-	return epoch
 }
 
 func printJSON(v any) error {

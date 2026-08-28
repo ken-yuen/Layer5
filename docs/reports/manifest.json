@@ -9,8 +9,8 @@
       "number": 0,
       "title": "YKC 總體構圖與開發路線圖",
       "date": "2026-08-21",
-      "size_bytes": 24333,
-      "sha256": "6e77e86b040588a9731d236f2d3cedf023f4b32f497feaf0836dc216c8e5ad60",
+      "size_bytes": 24785,
+      "sha256": "ec5e795c304353e7c3816172e782e0312603f2bfcf6154e9a18eca7756994478",
       "summary": "**使命**：讓使用者的 AI agent 在使用 YKC 後，能真實開發出「可運行、可驗證、可維護」的企業級 Rust 專案；同時讓非技術用家**無法再被代理欺騙**。",
       "headings": [
         {
@@ -71,12 +71,12 @@
         {
           "level": 2,
           "text": "E. 開發流程（往後每週節奏）",
-          "line": 184
+          "line": 185
         },
         {
           "level": 2,
           "text": "F. 決策紀錄（累積，只增不改）",
-          "line": 195
+          "line": 196
         }
       ],
       "refs": [
@@ -2518,6 +2518,100 @@
         {
           "target": "YKC_19_T19_L1依賴對齊與T20_L2結構統計實作規劃.md",
           "line": 3
+        }
+      ]
+    },
+    {
+      "path": "YKC_27_專案現況審計與競品價值分析報告.md",
+      "base": "YKC_27_專案現況審計與競品價值分析報告.md",
+      "kind": "series",
+      "number": 27,
+      "title": "YKC_27 — 專案現況審計、底層邏輯引擎評分與競品價值分析報告",
+      "date": "2026-08-28",
+      "baseline": "ykc-serve-datalog",
+      "size_bytes": 13631,
+      "sha256": "e72bbf830a79685a47cd6f901842576a69ea99170b2144a9579ed2f639fae14e",
+      "summary": "本輪開始時發現工作區快照還原再次不完整：`.git`、`.github/`、14 個 internal 包、4 個 cmd、 Go 工具鏈全部丟失。存留：全部 30 份報告 .md、README/Makefile/QUICKSTART 修改、 `internal/eventstore` 修復、`bin/` 二進制、雙 CLI 源碼。",
+      "headings": [
+        {
+          "level": 1,
+          "text": "YKC_27 — 專案現況審計、底層邏輯引擎評分與競品價值分析報告",
+          "line": 1
+        },
+        {
+          "level": 2,
+          "text": "1. 專案現況：完整性核查與事故如實記錄",
+          "line": 9
+        },
+        {
+          "level": 3,
+          "text": "1.1 工作區快照事故（第二次）與恢復",
+          "line": 11
+        },
+        {
+          "level": 3,
+          "text": "1.2 檔案完整性結論",
+          "line": 35
+        },
+        {
+          "level": 2,
+          "text": "2. 本輪代碼審計：找錯、債、重",
+          "line": 51
+        },
+        {
+          "level": 3,
+          "text": "2.1 修復（本輪 2 處）",
+          "line": 57
+        },
+        {
+          "level": 3,
+          "text": "2.2 記錄不修（接受的債，附理由）",
+          "line": 66
+        },
+        {
+          "level": 3,
+          "text": "2.3 測試衛生",
+          "line": 73
+        },
+        {
+          "level": 2,
+          "text": "3. 底層邏輯引擎評估與評分",
+          "line": 80
+        },
+        {
+          "level": 2,
+          "text": "4. 聯網掃描：能帶給 YKC 更好體驗/價值的東西",
+          "line": 104
+        },
+        {
+          "level": 3,
+          "text": "4.1 市場驗證（利好）",
+          "line": 106
+        },
+        {
+          "level": 3,
+          "text": "4.2 直接競品（比 YKC 早到或同軌）",
+          "line": 116
+        },
+        {
+          "level": 3,
+          "text": "4.3 可吸收：讓 YKC 更強的外部成果",
+          "line": 131
+        },
+        {
+          "level": 3,
+          "text": "4.4 優先級建議（按 ROI 排序）",
+          "line": 157
+        },
+        {
+          "level": 2,
+          "text": "5. 交付與備份紀律（本輪新增）",
+          "line": 169
+        },
+        {
+          "level": 2,
+          "text": "6. 邊界與未完成",
+          "line": 174
         }
       ]
     },

@@ -723,7 +723,7 @@ func (s *Server) appendProjectEvent(project string, kind domain.EventKind, paylo
 	if err != nil {
 		return err
 	}
-	env, err := domain.NewEnvelope(kind, latestEpoch(history), project, payload)
+	env, err := domain.NewEnvelope(kind, domain.LatestSnapshotEpoch(history), project, payload)
 	if err != nil {
 		return err
 	}
@@ -745,20 +745,6 @@ func appendWithRetry(b *eventledger.Bridge, env domain.Envelope, attempts int) e
 		}
 	}
 	return fmt.Errorf("ledger still locked after %d attempts: %w", attempts, err)
-}
-
-// latestEpoch 與 ykc-atom 同邏輯（最新 workspace.snapshot 的 epoch；空史回傳 ""）。
-// 刻意本地實作：cmd 套件無法被 internal 匯入；邏輯經 serve 測試鎖定。
-func latestEpoch(events []domain.Envelope) string {
-	var epoch string
-	var at time.Time
-	for _, e := range events {
-		if e.Kind == domain.EventWorkspaceSnapshot && e.At.After(at) {
-			epoch = e.Epoch
-			at = e.At
-		}
-	}
-	return epoch
 }
 
 // ---------- HTTP 端點 ----------
@@ -831,7 +817,7 @@ func (s *Server) evaluateClaim(ctx context.Context, project string, req claimsRe
 	if err != nil {
 		return guardrail.Decision{}, "", err
 	}
-	epoch := latestEpoch(history)
+	epoch := domain.LatestSnapshotEpoch(history)
 	claim := domain.AgentClaim{Kind: domain.AgentClaimKind(req.Kind), Text: req.Text}
 	claimEnv, err := domain.NewEnvelope(domain.EventAgentClaim, epoch, project, claim)
 	if err != nil {

@@ -178,6 +178,7 @@
 | T-30 | 知識面體驗 MVP（tier-1 60 張繁中 error 摘要、Trust Console `/api/know` 搜尋、可選私有跨程序 context cache） | T-27,T-29 | ✅ | 2026-08-23 |
 | T-31 | Capability pack core（manifest SHA 驗證、local JSONL worker protocol、Core-only event/anchored-ledger composition、thin/pack size admission） | T-24 | ✅ | 2026-08-23 |
 | T-32 | 主動 Rust 預譯（serve 啟動全掃；.rs/Cargo.toml/Cargo.lock 變更自動觸發；project-scoped single-flight + pending coalescing；sandbox fail-closed；report/ledger/panel 狀態） | T-25,T-06 | ✅ | 2026-08-23 |
+| T-33 | 全庫審計第二輪（judge 收據靜默錯修復、latestEpoch 收斂入 domain、快照事故恢復 runbook）+ 競品價值分析與邏輯引擎評分（YKC_27）+ Layer5 遠端備份通道 | T-31,T-32 | ✅ | 2026-08-28 |
 
 ---
 
@@ -237,4 +238,4 @@
 
 ---
 
-*版次：v10.6（2026-08-23：T-32 主動 Rust 預譯 ✅；T-31 ✅；T-19/T-20 MVP 🟨；以 capability pack 解耦 L1 cargo facts 與 L2 pure-Go AST，並保持 T0 細小；主動預譯見 YKC_24）。*
+*版次：v10.7（2026-08-28：T-33 審計第二輪+競品分析 ✅——judge 收據靜默錯修復、latestEpoch 收斂、底層邏輯引擎總評 7.6/10（DX 6.0 為最高槓桿面）、競品矩陣（shipgate/Shipmoor/Galley）與可吸收項（in-toto 對齊/Kani oracle/Proof-or-Stop 背書）見 YKC_27；遠端備份通道 Layer5 啟用。v10.6：T-32 主動 Rust 預譯 ✅；T-31 ✅；T-19/T-20 MVP 🟨）。*
