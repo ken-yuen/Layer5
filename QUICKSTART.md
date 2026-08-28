@@ -39,7 +39,7 @@ cd ykc        # 進入專案根目錄
 make verify-all
 ```
 
-`verify-all` 會先跑 `gofmt + go vet + staticcheck -checks=all`；預期看到 **13 項**全 ✅（第 ②⑦ 項的 FAIL / TAKEOVER 是**故意**的——證明反欺騙引擎正確揪出謊報、並把撒謊代理降級到 T0 全面接管；⑫ 驗證獨立 head anchor；⑬ 驗證 L1/L2 capability 與 pure-Go grammar 體積邊界）。
+`verify-all` 會先跑 `gofmt + go vet + staticcheck -checks=all`；預期看到 **12 項**全 ✅（第 ②⑦ 項的 FAIL / TAKEOVER 是**故意**的——證明反欺騙引擎正確揪出謊報、並把撒謊代理降級到 T0 全面接管；⑫ 驗證獨立 head anchor）。
 
 ## 4. 各功能分別體驗
 
@@ -52,10 +52,8 @@ make guard-verify   # 反欺騙：誠實 vs 撒謊代理的聲明比對
 make guard-score    # 信任棘輪：撒謊代理被降級到 T0 全面接管
 make guard-mcp      # MCP：把 YKC 當成 agent 可呼叫的工具
 make anchor-test    # head anchor：截斷／重簽／remote witness 回歸
-make deps-setup     # 顯式安裝鎖版 cargo-audit/cargo-deny（T-19）
-make deps           # L1 dependency evidence worker
-make structure      # L2 pure-Go Rust/Go AST worker
 make know-import    # 依目前 rustc 匯入官方 error index，建 blob + release manifest
+# （make deps-setup / make deps / make structure 屬 YKC_21 能力包——代碼落庫後恢復）
 ```
 
 ## 5. 對你自己的 Rust 專案用 YKC
@@ -82,7 +80,12 @@ make know-import    # 依目前 rustc 匯入官方 error index，建 blob + rele
 
 ### L1 依賴與 L2 結構 evidence（可選 capability pack）
 
+> ⚠️ **狀態注記（2026-08-25 審計）**：以下命令對應的 YKC_21 代碼（`ykc-deps` /
+> `ykc-structure` / `ykc-cap` 與相關 make 目標）**尚未落庫**（見 `YKC_23_T21執行報告.md`）。
+> 落庫前請勿執行；設計細節見 `YKC_20_能力包解耦與組合架構.md`。
+
 ```bash
+# （待 YKC_21 落庫後可用）
 # L1 預設只報告、不替你決定授權政策；-refresh 是人類明確允許的網路動作
 make deps-setup
 make deps

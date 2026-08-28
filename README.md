@@ -13,10 +13,9 @@
 # 方式 B：命令行（原生，無需容器）
 make lint           # gofmt + vet + staticcheck -checks=all（合入前置）
 make verify-all     # lint 後一鍵跑全部功能實測
-make deps            # 建 T-19 L1 capability worker（工具安裝另用 make deps-setup）
-make structure       # 建 T-20 pure-Go Rust/Go grammar worker
 make panel          # 啟動 YKC Trust Console（控制 + 觀察台）
 make serve          # 啟動 ykc-serve 常駐進程（監看+聲明評估+面板合一）
+# （T-19/T-20 能力包的 make deps / make structure 目標，待 YKC_21 代碼落庫後恢復；見下文）
 
 # 方式 C：容器（Podman 或 Docker 通用）
 make image && make up
@@ -88,11 +87,18 @@ export YKC_ANCHOR_WITNESS_VERIFY=true       # GET 對賬
 
 ## T-19 / T-20 Capability Packs（L1/L2 可選）
 
+> ⚠️ **狀態注記（2026-08-25 審計）**：本節命令（`make deps-setup` / `make deps` /
+> `make structure` / `make pack-deps` / `make pack-structure` / `make thin-core-test` /
+> `make structure-size` 與 `cmd/ykc-cap`、`cmd/ykc-deps`、`cmd/ykc-structure`）對應的
+> YKC_21 代碼**尚未落庫**（見 `YKC_23_T21執行報告.md` §風險）。落庫前執行會得到
+> `No rule to make target`。設計與驗收紀律以下列兩份報告為準。
+
 為保持 `ykc` T0 核心細小，cargo-audit/cargo-deny、RustSec DB 與 Tree-sitter grammar 不會連結進
 預設核心。它們以獨立 worker + SHA-verified manifest 組合；**只有 `ykc-cap` / Core 可將 worker
 輸出寫進 EventStore 與 anchored ledger**。
 
 ```bash
+# （待 YKC_21 落庫後可用）
 # L1：先安裝固定 cargo 工具，再建 worker；scan 預設 report-first + offline
 make deps-setup
 make deps
@@ -111,7 +117,29 @@ make pack-deps pack-structure
 `make thin-core-test` 會保證 T0 `ykc` 不連結 gotreesitter；`make structure-size` 鎖定 Rust+Go
 worker 的 25 MiB 預算。詳見 `YKC_20_能力包解耦與組合架構.md` 與 `YKC_21_T19T20能力包MVP執行報告.md`。
 
+## YKC 報告雙 CLI（健檢 + 重構）
+
+根目錄的 25 份系列報告（`YKC_00…YKC_24`）+ 3 份奠基文檔由兩個零依賴 CLI 管理（共用 `internal/reports`）：
+
+```bash
+# 報告健檢（ykc-reports）：解析元數據 + 審計
+./bin/ykc-reports list                    # 一覽：編號/標題/日期/基線/任務
+./bin/ykc-reports check                   # 審計：編號斷層、斷鏈引用、日期倒掛、標題缺失（error 退出 1）
+./bin/ykc-reports check -strict           # warn 也擋（合入前最嚴）
+./bin/ykc-reports show 24                 # 單一報告詳情（大綱/引用/sha256）
+
+# 報告重構（ykc-reportbook）：確定性生成三件產物到 docs/reports/
+./bin/ykc-reportbook build                # INDEX.md（總索引）+ manifest.json（機器可讀）+ OUTLINE.md（大綱）
+./bin/ykc-reportbook verify               # 漂移閘門：報告改了但產物沒重生成 → 退出 1（CI 用）
+```
+
+**決定論紀律**：產物僅為報告內容的函數（無時間戳、無隨機數）——`verify` 因此能把
+「文檔漂移」變成機械可判的失敗，與帳本可重放同一哲學。`make reports-check` 與
+`make reportbook-verify` 已入 CI core-lane。
+
 ## 文件索引
+
+> 全量索引（含日期/基線/任務/摘要/指紋，機器可讀）：[`docs/reports/INDEX.md`](docs/reports/INDEX.md)（`ykc-reportbook` 生成）。
 
 | 文件 | 內容 |
 |---|---|
@@ -124,6 +152,8 @@ worker 的 25 MiB 預算。詳見 `YKC_20_能力包解耦與組合架構.md` 與
 | **`YKC_20_能力包解耦與組合架構.md`** | **Core + capability pack + verified JSONL composition、thin/secure/full profiles** |
 | **`YKC_21_T19T20能力包MVP執行報告.md`** | **T-19/T-20 MVP、pack manifest、實際 cargo tool/grammar admission 與驗收** |
 | **`YKC_24_主動rustc預編譯報告.md`** | **主動預譯預設、啟動全掃、檔案變更觸發、單飛合併、sandbox fail-closed、帳本與面板狀態** |
+| **`YKC_25_全庫審計修復與報告雙CLI實作報告.md`** | **全庫審計（4 代碼錯/3 債/9 文檔錯漏全修）+ 報告雙 CLI（ykc-reports 健檢 / ykc-reportbook 確定性重構）** |
+| **`YKC_26_語法幾何與重寫理論地基報告.md`** | **T-20 理論地基：表面語法樹/抽象代數九律/幾何拓撲（弦圖）/重寫系統（Newman）/自動機/形式語言；CL0+R₀ 雙載體** |
 | **`YKC_00_構圖與路線圖.md`** | **總體構圖 + 里程碑 + 進度追蹤表（進度參照物）** |
 | **`YKC_01_容器化方案分析.md`** | Docker 類替代品深度分析（Podman/gVisor/Firecracker/Nix…）與建議 |
 | `YKC_YieldKeyCode_深度分析報告.md` | 技術五層、依賴清單、整體評分（v1.0） |
@@ -152,7 +182,7 @@ worker 的 25 MiB 預算。詳見 `YKC_20_能力包解耦與組合架構.md` 與
 ├── YKC_08_eventstore_ledger橋接設計與實作.md
 ├── YKC_09_panel工作視覺與審計健康優化報告.md
 ├── YKC_24_主動rustc預編譯報告.md
-├── cmd/                           ← 十二個命令（Core + 可選 L1/L2 capability worker，共用 internal/）
+├── cmd/                           ← 十三個命令（全部已落庫；共用 internal/）
 │   ├── ykc-smoke/main.go          ← 煙測引擎 ✅
 │   ├── ykc-atom/main.go           ← 原子監控 + 動態護欄 enforcement CLI ✅
 │   ├── ykc-precompile/             ← 沙盒 rustc/cargo 預編譯 ✅
@@ -171,28 +201,34 @@ worker 的 25 MiB 預算。詳見 `YKC_20_能力包解耦與組合架構.md` 與
 │   ├── ykc-panel/main.go          ← Trust Console 薄殼（實作在 internal/panel）✅
 │   ├── ykc-serve/main.go          ← 常駐進程（監看+聲明評估+面板合一；internal/serve）✅
 │   ├── ykc-know/main.go           ← 嵌入式唯讀知識庫 CLI（錯誤碼/規則/教學文檔檢索）✅
-│   ├── ykc-cap/main.go            ← Capability manifest 驗證／Core-side JSONL 組合 ✅
-│   ├── ykc-deps/main.go           ← T-19 L1 依賴事實 worker（可選 pack）🟨
-│   └── ykc-structure/main.go      ← T-20 pure-Go Rust/Go AST worker（可選 pack）🟨
+│   ├── ykc-doctor/main.go         ← 工具鏈顯性探測（ykc-doctor/v1 JSON；-strict fail-fast）✅
+│   ├── ykc-rustd/main.go          ← rust-analyzer 常駐 daemon（前哨診斷；判定權仍在 cargo）✅
+│   ├── ykc-reports/main.go        ← 報告健檢 CLI（list/check/show；internal/reports）✅
+│   └── ykc-reportbook/main.go     ← 報告重構 CLI（build/verify 確定性產物 + 漂移閘門）✅
+│   （ykc-cap / ykc-deps / ykc-structure 屬 YKC_21 能力包——代碼尚未落庫，落庫後補列）
 ├── internal/                      ← 共享包（去重後唯一實作）
 │   ├── ledger/                    ← 事實帳本 + project 外 HMAC head anchor（judge/guard 共用）
-│   ├── atomicfile/                 ← 原子寫入 primitives
-│   ├── eventstore/                 ← immutable per-event JSON store
-│   ├── eventledger/                ← eventstore → ledger hash-chain bridge
-│   ├── monitor/                    ← workspace snapshot/diff
-│   ├── guardrail/                  ← 行為驅動動態護欄 policy
-│   ├── enforcement/                ← block/smoke takeover 狀態落盤
-│   ├── smoke/                      ← reusable smoke runner
-│   ├── watch/                       ← 事件監看（inotify/poll + 去抖 + 過濾）
-│   ├── datalog/                     ← 迷你 Datalog 引擎（分層否定；護欄規則用）
-│   ├── capability/                  ← Pack manifest + bounded local JSONL protocol
-│   ├── deps/                        ← T-19 Cargo metadata/audit/deny normalizer（worker side）
-│   ├── structure/                   ← T-20 pure-Go Rust/Go AST facts（worker side）
-│   ├── panel/                       ← Trust Console 唯一實作（ykc-panel 與 ykc-serve 共用）
-│   └── serve/                       ← 常駐進程核心（事件循環/claims/auto-judge）
-│   ├── sandbox/                    ← gVisor/bwrap/native execution abstraction
-│   ├── precompile/                 ← cargo check / rustc metadata pipeline
-│   ├── kb/                         ← 嵌入式唯讀知識庫 + 代理上下文引擎（YKC_15）
+│   ├── atomicfile/                ← 原子寫入 primitives
+│   ├── eventstore/                ← immutable per-event JSON store
+│   ├── eventledger/               ← eventstore → ledger hash-chain bridge
+│   ├── monitor/                   ← workspace snapshot/diff
+│   ├── guardrail/                 ← 行為驅動動態護欄 policy + datalog 規則
+│   ├── enforcement/               ← block/smoke takeover 狀態落盤
+│   ├── smoke/                     ← reusable smoke runner
+│   ├── watch/                     ← 事件監看（inotify/poll + 去抖 + 過濾）
+│   ├── datalog/                   ← 迷你 Datalog 引擎（分層否定；護欄規則用）
+│   ├── domain/                    ← 事件域穩定 wire 型別（Envelope/Claim/CommandResult）
+│   ├── claimview/                 ← 帳本事實投影（判決/信任視圖）
+│   ├── toolchain/                 ← T-21 工具鏈 port（replay/unavailable adapter + 契約測試）
+│   ├── lsp/                       ← LSP 客戶端 session 管理（ykc-lsp / ykc-rustd 共用）
+│   ├── tail/                      ← 全量 hash + 尾部保留輸出緩衝（子行程輸出唯一實作）
+│   ├── panel/                     ← Trust Console 唯一實作（ykc-panel 與 ykc-serve 共用）
+│   ├── serve/                     ← 常駐進程核心（事件循環/claims/auto-judge/主動預譯/attest）
+│   ├── sandbox/                   ← gVisor/bwrap/native execution abstraction
+│   ├── precompile/                ← cargo check / rustc metadata pipeline
+│   ├── borrow/                    ← L5 接線：文字拓撲 + 區間代數 + 衝突圖 + 幾何規則卡
+│   ├── reports/                   ← YKC 報告解析/審計/確定性重構（雙 CLI 共用）
+│   ├── kb/                        ← 嵌入式唯讀知識庫 + 代理上下文引擎（YKC_15）
 │   │   ├── store.go / manifest.go  ← 內容定址 Store、blob v2、release manifest/replay
 │   │   ├── diff.go / zh.go          ← 原子／Refs diff、tier-1 繁中摘要層
 │   │   ├── index.go / token.go     ← 倒排索引 + BM25 + char-shingle 模糊檢索
@@ -201,13 +237,14 @@ worker 的 25 MiB 預算。詳見 `YKC_20_能力包解耦與組合架構.md` 與
 │   │   ├── context.go              ← Retrieve 管線（檢索→展開→預算截斷→渲染）
 │   │   └── data/*.json.gz          ← 518 錯誤碼 + 54 規則 + 官方教學文檔（go:embed）
 │   └── rustutil/rustutil.go       ← 執行/解析/簽名/雜湊通用工具
+│   （internal/capability、internal/deps、internal/structure 屬 YKC_21——尚未落庫）
 ├── core/interfaces.go             ← 五層窄介面 + Executor 骨架 ✅
 ├── l5/chordlaw/                   ← L5 引擎：vendored ChordLaw（Datalog 借用檢查器，26/26 rustc oracle）
-├── internal/borrow/               ← L5 接線：文字拓撲 + 區間代數 + 衝突圖 + 幾何規則卡（代理可讀幾何）
 ├── demo-rust-cli/                 ← 健康示範專案（clap CLI，煙測用）
 ├── demo-broken-cli/               ← 有錯專案（除錯閉環用）
 ├── demo-semantic-cli/             ← 語意錯誤專案（E0425，剩餘錯誤路徑用）
 ├── docs/rust_terms_zh_hant.md     ← tier-1 繁中卡術語表與翻譯紀律
+├── docs/reports/                  ← ykc-reportbook 確定性產物（INDEX/manifest/OUTLINE；勿手改）
 ├── claims.json                    ← 代理謊報聲明樣本（煙測反欺騙比對用）
 ├── demo-agent-honest.json         ← 誠實代理聲明（T-14/T-15 用）
 ├── demo-agent-lying.json          ← 撒謊代理聲明（T-14/T-15 用）

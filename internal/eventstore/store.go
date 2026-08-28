@@ -3,7 +3,7 @@ package eventstore
 
 import (
 	"bytes"
-	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -46,7 +47,7 @@ func (s *Store) Append(e domain.Envelope) (domain.Envelope, error) {
 		e.At = time.Now().UTC()
 	}
 	if e.ID == "" {
-		e.ID = newEventID(e.At)
+		e.ID = newEventID(e)
 	}
 	b, err := json.MarshalIndent(e, "", "  ")
 	if err != nil {
@@ -106,10 +107,24 @@ func (s *Store) Replay() ([]domain.Envelope, error) {
 	return events, nil
 }
 
-func newEventID(t time.Time) string {
-	var b [8]byte
-	_, _ = rand.Read(b[:])
-	return fmt.Sprintf("%020d-%s", t.UTC().UnixNano(), hex.EncodeToString(b[:]))
+// newEventID derives the event ID from the envelope's full content: the
+// timestamp prefix keeps files time-ordered, and the sha256 suffix makes the
+// ID deterministic. Retrying Append with the same envelope (e.g. a bridge
+// retry after ErrLocked) therefore reproduces the same ID and hits the
+// idempotent fast path instead of writing a duplicate event under a fresh
+// random ID.
+func newEventID(e domain.Envelope) string {
+	h := sha256.New()
+	h.Write([]byte(e.Kind))
+	h.Write([]byte{0})
+	h.Write([]byte(strconv.FormatInt(e.At.UTC().UnixNano(), 10)))
+	h.Write([]byte{0})
+	h.Write([]byte(e.Epoch))
+	h.Write([]byte{0})
+	h.Write([]byte(e.WorkspaceRoot))
+	h.Write([]byte{0})
+	h.Write(e.Payload)
+	return fmt.Sprintf("%020d-%s", e.At.UTC().UnixNano(), hex.EncodeToString(h.Sum(nil))[:16])
 }
 
 func sanitizeFileName(s string) string {

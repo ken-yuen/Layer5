@@ -16,7 +16,7 @@
 #   make know-import / know-replay / know-diff — KB release 的建庫、可重放與審計差異
 #   make image   — 建置 OCI 鏡像（Podman 優先，回退 Docker）
 #   make up      — 本機容器一鍵運行
-.PHONY: setup bootstrap-go verify-all build binaries smoke atom precompile judge lsp guard guard-verify guard-score guard-mcp panel serve health image up clean l5-test borrow-test anchor-test know know-test know-build know-import know-replay know-diff know-serve toolchain-test contract-test fmt-check vet staticcheck toolchain-guard lint
+.PHONY: setup bootstrap-go verify-all build binaries smoke atom precompile judge lsp guard guard-verify guard-score guard-mcp panel serve health image up clean l5-test borrow-test anchor-test know know-test know-build know-import know-replay know-diff know-serve toolchain-test contract-test fmt-check vet staticcheck toolchain-guard lint reports-test reports-check reportbook reportbook-verify
 
 # 工具鏈位置：預設 $HOME/.ykc（零 sudo）；可用環境變數覆寫（如 YKC_HOME=/opt/ykc）
 YKC_HOME ?= $(HOME)/.ykc
@@ -121,6 +121,8 @@ binaries:
 	go build -o bin/ykc-know ./cmd/ykc-know
 	go build -o bin/ykc-doctor ./cmd/ykc-doctor
 	go build -o bin/ykc-rustd ./cmd/ykc-rustd
+	go build -o bin/ykc-reports ./cmd/ykc-reports
+	go build -o bin/ykc-reportbook ./cmd/ykc-reportbook
 
 atom:
 	mkdir -p bin
@@ -232,6 +234,29 @@ know-serve:
 	mkdir -p bin
 	go build -o bin/ykc-know ./cmd/ykc-know
 	./bin/ykc-know serve -addr 127.0.0.1 -port 8090
+
+# ── YKC 報告健檢 + 重構（雙 CLI；共用 internal/reports）─────────────
+# ykc-reports：解析 YKC_*.md 元數據（編號/日期/基線/任務/引用/鏈接/sha256）
+#   並審計編號斷層、斷鏈引用、日期倒掛、標題缺失；error 退出 1。
+reports-test:
+	go test ./internal/reports/...
+
+reports-check:
+	mkdir -p bin
+	go build -o bin/ykc-reports ./cmd/ykc-reports
+	./bin/ykc-reports check -root .
+
+# ykc-reportbook：確定性重構報告為 INDEX.md + manifest.json + OUTLINE.md。
+# verify 是 CI 漂移閘門：改了報告但沒重生成產物 → 退出 1。
+reportbook:
+	mkdir -p bin
+	go build -o bin/ykc-reportbook ./cmd/ykc-reportbook
+	./bin/ykc-reportbook build -root . -out docs/reports
+
+reportbook-verify:
+	mkdir -p bin
+	go build -o bin/ykc-reportbook ./cmd/ykc-reportbook
+	./bin/ykc-reportbook verify -root . -out docs/reports
 
 health: lint binaries
 	@set -eu; \

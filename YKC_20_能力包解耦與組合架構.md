@@ -1,4 +1,5 @@
 # YKC_20 — L1/L2 能力包解耦與可驗證組合架構
+> 日期：2026-08-23（依 git 提交時刻 ebfaf38 08-22 22:03 UTC = HKT 08-23；與 YKC_19／YKC_21 自述日期一致——2026-08-25 審計回填）
 
 > 目標：**T0 成品保持細小；需要時才取 L1/L2；取回後仍可在同一套 anchored ledger、面板、MCP 與 gate 中組合成一個可信裁判。**  
 > 執行更新：manifest/JSONL/Core-only composition、L1/L2 MVP 已落地；見 `YKC_21_T19T20能力包MVP執行報告.md`。

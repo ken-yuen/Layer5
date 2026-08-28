@@ -23,8 +23,8 @@ type Watcher struct {
 	cfg     Config
 	backend Backend
 
-	batchMu sync.Mutex
-	batches chan []Event
+	batchMu  sync.Mutex
+	batches  chan []Event
 	errors   chan error
 	done     chan struct{}
 	loopDone chan struct{}
@@ -63,9 +63,9 @@ func NewWatcher(cfg Config) (*Watcher, error) {
 		}
 	}
 	w := &Watcher{
-		cfg:     cfg,
-		backend: backend,
-		batches: make(chan []Event, 64),
+		cfg:      cfg,
+		backend:  backend,
+		batches:  make(chan []Event, 64),
 		errors:   make(chan error, 16),
 		done:     make(chan struct{}),
 		loopDone: make(chan struct{}),

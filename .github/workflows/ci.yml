@@ -5,8 +5,10 @@ name: CI
 #   toolchain-lane 鎖版 Rust；契約測試鎖定 cargo JSON / r-a 行為
 #   nightly-drift  每晚以最新 stable 跑契約測試；漂移提前現形，不擋 merge
 #
-# 注：make verify-all 暫不入 CI——其 capability-test 依賴的 cmd/ykc-cap 等
-#     YKC_21 代碼尚未落庫（見 YKC_23 執行報告）；落庫後恢復。
+# 注：make verify-all 暫不入 CI——它需要完整 Rust 工具鏈 + curl + python3 且
+#     會起常駐 serve 進程（端到端實測）；本 workflow 以 core-lane/toolchain-lane
+#     覆蓋其可自動化的子集（2026-08-25 審計更新：verify-all 已不再依賴
+#     capability-test/cmd/ykc-cap——該依賴屬 YKC_21 未落庫代碼，見 YKC_23）。
 
 on:
   push:
@@ -68,6 +70,11 @@ jobs:
           GOOS=darwin  GOARCH=arm64 go build -o /dev/null ./cmd/ykc-serve
           GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/ykc-serve
           GOOS=linux   GOARCH=arm64 go build -o /dev/null ./cmd/ykc-doctor
+
+      - name: 報告健檢 + 重構產物漂移閘門（ykc-reports / ykc-reportbook）
+        run: |
+          make reports-check
+          make reportbook-verify
 
       - name: make binaries
         run: make binaries
@@ -165,6 +172,8 @@ jobs:
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-know        ./cmd/ykc-know
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-doctor      ./cmd/ykc-doctor
           CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-rustd       ./cmd/ykc-rustd
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-reports     ./cmd/ykc-reports
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/ykc/ykc-reportbook  ./cmd/ykc-reportbook
           # L5 引擎（ykc-judge/ykc-guard 的幾何解釋依賴; 執行檔旁 l5/chordlaw 自動探測）
           mkdir -p dist/ykc/l5
           cp -r l5/chordlaw dist/ykc/l5/
