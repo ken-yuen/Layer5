@@ -1,4 +1,4 @@
-# 弦律 ChordLaw（工作原型 v0.5）
+# 弦律 ChordLaw（工作原型 v0.7）
 
 簡化 Rust 借用/生命週期檢查器：Datalog 規則 × DAG 拓撲 × 圓示（縱點節圖）。
 
@@ -6,6 +6,9 @@
 - **[gallery.html](gallery.html)** — 32 則圓示（縱點節圖）畫廊
 - **[DOCS.md](DOCS.md)** — 專案全面說明（語言規格、架構、接口、測試、限制）
 - [PLAN.md](PLAN.md) — 完整計畫與論證、roadmap
+- **[MCP.md](MCP.md)** — P3a：MCP × 持久化 × 評分／報告
+- **[AHPBB.md](AHPBB.md)** — P1/P2：意圖樹 + syn/quote + AutoHPBorrowBase 工廠
+- [reports/helper_v0.7.md](reports/helper_v0.7.md) — 本倉庫小幫手評分與建議
 
 ## 運行
 
@@ -17,6 +20,12 @@ python3 chordlaw.py examples/r01_eclash.cl
 python3 chordlaw.py --json examples/r18_ebranchmove.cl
 python3 chordlaw.py --explain examples/r15_etemp.cl
 python3 chordlaw.py --rules                  # 規則規格速覽＋完整規則檔
+python3 chordlaw.py --check [DIR]            # 專案檢查（.cl；.rs 略過）
+python3 chordlaw.py --report [DIR] -o reports/latest.md
+python3 chordlaw.py --history [DIR]          # 會話 diff
+python3 chordlaw.py --mcp                    # stdio MCP（掛代理用）
+python3 chordlaw.py --factory                # AHPBB：多線產出正確 Rust → 新資料夾
+python3 chordlaw.py --from-rs FILE.rs        # syn 子集 → .cl → 檢查
 ```
 
 無外部依賴（純 Python 標準庫）。輸出：終端報告（判決＋**證明樹**＋區域表）、`examples/out/*.svg`（圓示）、`--json`（供代理/CI 的結構化輸出）。
@@ -25,6 +34,8 @@ python3 chordlaw.py --rules                  # 規則規格速覽＋完整規則
 
 ```bash
 python3 test_chordlaw.py   # 回歸測試（語料 + 32 則 + TestGeometry）
+python3 test_helper.py     # P3a：評分 / 持久化 / MCP
+python3 test_ahpbb.py      # P1/P2 + 工廠（syn/quote/生命週期/批量出貨）
 python3 oracle_check.py    # 差異測試: .cl→Rust 忠實翻譯 vs 真 rustc（需 rustc）
 ```
 

@@ -230,8 +230,8 @@ Rust 借用系統的**核心邏輯**可歸約為四條不變式；弦律每條�
 |---|---|---|---|---|
 | **P0** 規則規格 | 2 週 | 把 E01–E10 與設計定理寫成可審查規格＋一致性模型 | `rules.dl` 評審版、Alloy 模型、健全性陳述 | Alloy 模型檢查通過；規則↔不變式對應表簽核 |
 | **P1** Datalog 核心 | 4 週（**骨架已完成**） | 引擎＋前端＋圓示工程化 | 分層引擎、證明樹、增量、CLI、`rules.dl`、`--json` 機器接口、`--explain`/`--rules`、測試＋oracle CI | 17 範例＋19 項回歸測試全綠；rustc oracle 26/26 一致（M5 目前=0）；增量 p95 < 500ms |
-| **P2** Rust 子集前端 | 4 週 | `syn`/`quote` → IR（let/expr/if/loop、字段、暫存、回傳） | 完整規則集（字段 place projection、`lexical` 級） | 200 個真實 snippet（取自 rustc issue）判定**保守方向**一致率 ≥ 99% |
-| **P3** 代理工具鏈 | 3 週 | MCP/CLI 工具＋增量引擎 | `chordlaw_check` / `chordlaw_diagram` / `chordlaw_explain` / `chordlaw_rules`（MCP） | 代理在環 demo：借用錯誤**中位 ≤2 次**迭代收斂 |
+| **P2** Rust 子集前端 | 4 週（**Python syn 子集 + AHPBB 已落地**） | `syn`/`quote` → IR（let/expr/if/loop、字段、暫存、回傳） | `syn_subset.py` / `quote_tpl.py` / `intent.py` / `ahpbb.py`（多線出貨正確 Rust） | 子集：oracle 26 例判決不變。全量 syn crate + 200 snippet 仍待 cargo/rustc |
+| **P3** 代理工具鏈 | 3 週（**P3a 已落地**） | MCP/CLI 工具＋增量引擎 | `chordlaw_check` / `diagram` / `explain` / `rules` / `report` / `history`（MCP stdio）＋`.chordlaw/state.json` | P3a：六工具＋評分報告。P3b 增量／P3c apply／代理 demo（M2≤2）未做 |
 | **P4** 健全性證明 | 3 週（並行） | 形式化＋模糊測試 | Coq/Lean 核心引理；以 `rustc` 為 oracle 的差異模糊測試 CI | 核心引理證明；模糊測試 **0** 虛假放行 |
 | **P5** 量測 | 3 週 | A/B 對照實證 | 200 任務 benchmark、M1–M5 報告 | 出「有/無弦律」成功率對照報告 |
 

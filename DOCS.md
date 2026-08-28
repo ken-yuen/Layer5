@@ -1,7 +1,7 @@
 # 弦律 ChordLaw — 專案說明文件（DOCS.md）
 
-> 版本 v0.5 · 2026-08-27 · 狀態：**可運行原型，32 則規則 + 幾何法則可測 + 圓示全綠**
-> 92 項回歸測試全綠 · rustc oracle 差異測試 26/26 一致（0 虛假放行）· 17 範例判定與 NLL 語義一致
+> 版本 v0.7 · 2026-08-27 · 狀態：**可運行原型，32 則規則 + MCP + AHPBB 工廠（syn 子集）**
+> 92+9+12 項回歸測試全綠 · rustc oracle 26/26 · 見 [MCP.md](MCP.md) / [AHPBB.md](AHPBB.md)
 
 **配套文件**：
 - [README.md](README.md) — 快速上手（運行/測試/檔案總覽）
@@ -464,6 +464,13 @@ verdict: FAIL — 1 個錯誤
 ---
 
 ## 12. 變更記錄
+
+### v0.6（2026-08-27）
+
+- **P3a 代理工具鏈**：`helper.py` 專案檢查／建議／評分／`.chordlaw/state.json`；`mcp_server.py` stdio MCP 六工具。
+- CLI：`--check` / `--report` / `--history` / `--mcp`。
+- 規格：[MCP.md](MCP.md)。本倉庫報告：[reports/helper_v0.6.md](reports/helper_v0.6.md)。
+- 測試：`test_helper.py` 9 項。`.rs` 不假裝已檢查。
 
 ### v0.4（2026-08-24）
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-弦律 ChordLaw — 簡化 Rust 借用/生命週期檢查器 (工作原型 v0.5)
+弦律 ChordLaw — 簡化 Rust 借用/生命週期檢查器 (工作原型 v0.7)
 =============================================================
 核心:
   1. mini Datalog 引擎: 分層 (stratified) 單調定點 + 證明樹 (provenance)
@@ -10,7 +10,7 @@
      (控制流 DAG 含 if/else 菱形、迴圈後向邊、作用域樹、多 fn、字段路徑/split borrow、
       imm/tmp/hole/slot、經參考寫/移、store、call/callmv)
   3. 圓示 (縱點節圖) SVG 渲染器: 點=陳述、弧=借用、圓=作用域
-  4. 代理接口: --json (verdict/errors+證明樹/regions) / --explain / --rules
+  4. 代理接口: --json / --explain / --rules / --check / --report / --mcp
   5. 32 則錯誤規則 E01–E32 (rules.dl) + 32 則圓示範例 (examples/rXX_*.cl)
 
 規則 = 規則檔 (rules.dl + liveness_{nll,referent,lexical}.dl),
@@ -23,6 +23,12 @@
   python3 chordlaw.py --json FILE        # 機器接口
   python3 chordlaw.py --explain FILE     # 規則原文+證明+幾何+修法
   python3 chordlaw.py --rules            # 規則規格速覽
+  python3 chordlaw.py --check [DIR]      # 專案檢查
+  python3 chordlaw.py --report [DIR]     # 評分+建議+寫入 .chordlaw/
+  python3 chordlaw.py --history [DIR]
+  python3 chordlaw.py --mcp              # stdio MCP 伺服器
+  python3 chordlaw.py --factory          # AHPBB 批量產出正確 Rust
+  python3 chordlaw.py --from-rs FILE.rs  # syn 子集 → 意圖樹 → 檢查
 
 驗證:
   python3 test_chordlaw.py               # 回歸測試
@@ -36,7 +42,7 @@ import sys
 import glob
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-VERSION = "v0.5"
+VERSION = "v0.7"
 
 def esc(s):
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -1597,10 +1603,26 @@ def explain_file(path, liveness):
 def main():
     import json
     args = sys.argv[1:]
+    if "--mcp" in args:
+        import mcp_server
+        mcp_server.serve_stdio()
+        return
+    if "--factory" in args or "--from-rs" in args:
+        import ahpbb
+        # 把本行程式參數交給工廠 (去掉 chordlaw 自身旗標重複)
+        argv = [a for a in sys.argv[1:] if a != "--factory"]
+        if "--factory" in sys.argv[1:] and "--batch" not in argv and "--from-rs" not in argv and "--from-cl" not in argv:
+            argv = ["--batch"] + argv
+        raise SystemExit(ahpbb.main(argv))
     liveness = "nll"
     if "--liveness" in args:
         liveness = args[args.index("--liveness") + 1]
         args = args[:args.index("--liveness")] + args[args.index("--liveness") + 2:]
+    out_md = None
+    if "-o" in args:
+        i = args.index("-o")
+        out_md = args[i + 1]
+        args = args[:i] + args[i + 2:]
     as_json = "--json" in args
     if as_json:
         args = [a for a in args if a != "--json"]
@@ -1616,6 +1638,50 @@ def main():
     as_explain = "--explain" in args
     if as_explain:
         args = [a for a in args if a != "--explain"]
+    import helper as H
+    if "--history" in args:
+        rest = [a for a in args if a != "--history"]
+        root = rest[0] if rest else HERE
+        print(json.dumps(H.history_summary(root), ensure_ascii=False, indent=2))
+        return
+    if "--report" in args:
+        rest = [a for a in args if a != "--report"]
+        root = rest[0] if rest else HERE
+        sess = H.run_project(root, liveness, persist=True)
+        md = H.render_report(sess)
+        dest = out_md or os.path.join(root, "reports", "latest.md")
+        H.write_report(sess, dest)
+        if as_json:
+            slim = dict(sess)
+            slim.pop("file_results", None)
+            slim["report_path"] = os.path.abspath(dest)
+            print(json.dumps(slim, ensure_ascii=False, indent=2))
+        else:
+            print(md)
+            print("報告: %s" % dest)
+            if sess.get("state"):
+                print("狀態: %s" % sess["state"])
+        return
+    if "--check" in args:
+        rest = [a for a in args if a != "--check"]
+        root = rest[0] if rest else HERE
+        sess = H.run_project(root, liveness, persist=True)
+        if as_json:
+            slim = dict(sess)
+            slim.pop("file_results", None)
+            print(json.dumps(slim, ensure_ascii=False, indent=2))
+            return
+        sc = sess["score"]
+        print("check %s  overall=%d (%s)  PASS %d/%d  錯誤 %d" % (
+            root, sc["overall"], sc["band"],
+            sc["counts"]["pass"], sc["counts"]["checked"], sc["counts"]["errors"]))
+        for a in (sess.get("advice") or [])[:20]:
+            print("  [%s] %s %s@%s  %s — %s" % (
+                a.get("priority"), a.get("op"), a.get("code"),
+                a.get("stmt"), a.get("file"), (a.get("detail") or "")[:80]))
+        if sess.get("state"):
+            print("狀態: %s" % sess["state"])
+        return
     if liveness not in LIVENESS_MODES:
         print("錯誤: 未知 liveness %r (可用: %s)" % (liveness, ", ".join(LIVENESS_MODES)))
         sys.exit(2)

@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 .oracle_tmp/
+.chordlaw/
+factory_out/
