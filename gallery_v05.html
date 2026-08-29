@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>弦律 ChordLaw v0.5 — 32 則圓示（縱點節圖）</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif; background: #0b1220; color: #e2e8f0; }
+  header { padding: 28px 28px 8px; }
+  header h1 { margin: 0 0 8px; font-size: 22px; }
+  header p { margin: 0; color: #94a3b8; font-size: 14px; max-width: 72ch; }
+  nav { display: flex; flex-wrap: wrap; gap: 6px; padding: 16px 28px 8px; }
+  nav a { color: #93c5fd; font-size: 12px; text-decoration: none; border: 1px solid #1e3a5f; border-radius: 999px; padding: 2px 8px; }
+  nav a:hover { background: #1e3a5f; }
+  main { display: grid; grid-template-columns: 1fr; gap: 28px; padding: 12px 20px 48px; }
+  .card { margin: 0; background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; overflow: auto; }
+  figcaption { padding: 10px 14px; font-family: ui-monospace, monospace; font-size: 13px; color: #cbd5e1; border-bottom: 1px solid #1e293b; }
+  figcaption a { color: #93c5fd; text-decoration: none; }
+  .viz { overflow: auto; }
+  .viz svg { display: block; max-width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>弦律 ChordLaw v0.5 — 32 則圓示</h1>
+  <p>每則規則一張縱點節圖。✕ 僅標 eclash 證明；虛線弧 = NLL 空洞；琥珀虛線 = 可能活（E18/E24）。規格見 <a href="GEOMETRY.md" style="color:#93c5fd">GEOMETRY.md</a> · <a href="RULES32.md" style="color:#93c5fd">RULES32.md</a>。</p>
+</header>
+<nav>
+<a href="#r01_eclash">R01</a>
+<a href="#r02_ewrite">R02</a>
+<a href="#r03_eread">R03</a>
+<a href="#r04_edangle">R04</a>
+<a href="#r05_eadrop">R05</a>
+<a href="#r06_emove">R06</a>
+<a href="#r07_eloanmove">R07</a>
+<a href="#r08_eloandrop">R08</a>
+<a href="#r09_erefuse">R09</a>
+<a href="#r10_ereturn">R10</a>
+<a href="#r11_eimmut">R11</a>
+<a href="#r12_enotmut">R12</a>
+<a href="#r13_eassignsh">R13</a>
+<a href="#r14_emoveout">R14</a>
+<a href="#r15_etemp">R15</a>
+<a href="#r16_eescape">R16</a>
+<a href="#r17_estoretemp">R17</a>
+<a href="#r18_ebranchmove">R18</a>
+<a href="#r19_edoubledrop">R19</a>
+<a href="#r20_edropmoved">R20</a>
+<a href="#r21_ealiascyc">R21</a>
+<a href="#r22_eimmfield">R22</a>
+<a href="#r23_enotmutfield">R23</a>
+<a href="#r24_eelsejoin">R24</a>
+<a href="#r25_ecallmut">R25</a>
+<a href="#r26_ecallmove">R26</a>
+<a href="#r27_ecalloan">R27</a>
+<a href="#r28_erettemp">R28</a>
+<a href="#r29_euninit">R29</a>
+<a href="#r30_euninitret">R30</a>
+<a href="#r31_eparamimmut">R31</a>
+<a href="#r32_eparamnotmut">R32</a>
+</nav>
+<main>
+<figure class="card" id="r01_eclash">
+<figcaption><a href="examples/r01_eclash.cl">r01_eclash</a> · eclash</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="556" viewBox="0 0 860 556" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r01_eclash.cl</text>
+<line x1="300" y1="70" x2="300" y2="392" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="231" rx="234" ry="169" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r01</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#60a5fa"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;x</text>
+<circle cx="300" cy="204" r="5" fill="#94a3b8"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  use a</text>
+<circle cx="300" cy="258" r="5" fill="#f87171"/>
+<circle cx="300" cy="258" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  let b = &amp;mut x</text>
+<circle cx="300" cy="312" r="5" fill="#94a3b8"/>
+<text x="286" y="316" fill="#cbd5e1" font-size="12" text-anchor="end">s5  use a</text>
+<circle cx="300" cy="366" r="5" fill="#94a3b8"/>
+<text x="286" y="370" fill="#cbd5e1" font-size="12" text-anchor="end">s6  use b</text>
+<path d="M 300 150 C 384 150, 384 312, 300 312" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="235" fill="#3b82f6" font-size="11">a : &amp; x</text>
+<path d="M 300 258 C 384 258, 384 366, 300 366" fill="none" stroke="#ef4444" stroke-width="3.5"/>
+<text x="371" y="316" fill="#ef4444" font-size="11">b : &amp;mut x</text>
+<circle cx="352" cy="280" r="7" fill="none" stroke="#fbbf24" stroke-width="2"/>
+<text x="352" y="284" fill="#fbbf24" font-size="12" text-anchor="middle">✕</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E01 @ s4  紅弧交越: 兩借用重疊且至少一者為 mut (~ E0499/E0502)</text>
+<line x1="24" y1="422" x2="64" y2="422" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="426" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="422" x2="280" y2="422" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="426" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="422" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="426" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="448" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="468" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="488" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="508" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r02_ewrite">
+<figcaption><a href="examples/r02_ewrite.cl">r02_ewrite</a> · ewrite</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="448" viewBox="0 0 860 448" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r02_ewrite.cl</text>
+<line x1="300" y1="70" x2="300" y2="284" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="177" rx="234" ry="115" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r02</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#60a5fa"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;x</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  set x</text>
+<circle cx="300" cy="258" r="5" fill="#94a3b8"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  use a</text>
+<path d="M 300 150 C 384 150, 384 258, 300 258" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="208" fill="#3b82f6" font-size="11">a : &amp; x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E02 @ s3  借用活躍期間寫入被借者 (~ E0506)</text>
+<line x1="24" y1="314" x2="64" y2="314" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="318" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="314" x2="280" y2="314" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="318" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="314" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="318" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="340" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="360" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="380" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="400" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r03_eread">
+<figcaption><a href="examples/r03_eread.cl">r03_eread</a> · eread</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="502" viewBox="0 0 860 502" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r03_eread.cl</text>
+<line x1="300" y1="70" x2="300" y2="338" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="204" rx="234" ry="142" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r03</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#f87171"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;mut x</text>
+<circle cx="300" cy="204" r="5" fill="#94a3b8"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  use a</text>
+<circle cx="300" cy="258" r="5" fill="#ef4444"/>
+<circle cx="300" cy="258" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  use x</text>
+<circle cx="300" cy="312" r="5" fill="#94a3b8"/>
+<text x="286" y="316" fill="#cbd5e1" font-size="12" text-anchor="end">s5  use a</text>
+<path d="M 300 150 C 384 150, 384 312, 300 312" fill="none" stroke="#ef4444" stroke-width="3.5"/>
+<text x="371" y="235" fill="#ef4444" font-size="11">a : &amp;mut x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E03 @ s4  mut 借用活躍期間直接讀取被借者 (~ E0503)</text>
+<line x1="24" y1="368" x2="64" y2="368" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="372" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="368" x2="280" y2="368" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="372" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="368" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="372" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="394" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="414" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="434" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="454" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r04_edangle">
+<figcaption><a href="examples/r04_edangle.cl">r04_edangle</a> · edangle</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="502" viewBox="0 0 860 502" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 2 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r04_edangle.cl</text>
+<line x1="300" y1="70" x2="300" y2="338" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="204" rx="234" ry="142" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r04</text>
+<ellipse cx="300" cy="204" rx="200" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="109" fill="#64748b" font-size="11" text-anchor="middle">block</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  slot s</text>
+<circle cx="300" cy="150" r="5" fill="#94a3b8"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let y</text>
+<circle cx="300" cy="204" r="5" fill="#60a5fa"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  let a = &amp;y</text>
+<circle cx="300" cy="258" r="5" fill="#ef4444"/>
+<circle cx="300" cy="258" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  store s = a</text>
+<circle cx="300" cy="312" r="5" fill="#ef4444"/>
+<circle cx="300" cy="312" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="316" fill="#cbd5e1" font-size="12" text-anchor="end">s5  use s</text>
+<path d="M 300 204 C 384 204, 384 258, 300 258" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="235" fill="#3b82f6" font-size="11">a : &amp; y</text>
+<line x1="300" y1="246" x2="300" y2="52" stroke="#ef4444" stroke-width="2" stroke-dasharray="5 4"/>
+<polygon points="300,40 295,52 305,52" fill="#ef4444"/>
+<text x="310" y="74" fill="#fca5a5" font-size="11">→ 呼叫者 (弧逸出作用域圓)</text>
+<line x1="300" y1="300" x2="300" y2="52" stroke="#ef4444" stroke-width="2" stroke-dasharray="5 4"/>
+<polygon points="300,40 295,52 305,52" fill="#ef4444"/>
+<text x="310" y="74" fill="#fca5a5" font-size="11">→ 呼叫者 (弧逸出作用域圓)</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E16 @ s4  把指向局部的參考存入槽 (~ E0521)</text>
+<text x="486" y="79" fill="#fca5a5" font-size="11">E04 @ s5  使用點落在被借者作用域之外 (~ E0597)</text>
+<line x1="24" y1="368" x2="64" y2="368" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="372" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="368" x2="280" y2="368" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="372" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="368" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="372" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="394" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="414" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="434" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="454" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r05_eadrop">
+<figcaption><a href="examples/r05_eadrop.cl">r05_eadrop</a> · eadrop</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r05_eadrop.cl</text>
+<line x1="300" y1="70" x2="300" y2="230" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="150" rx="234" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r05</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#94a3b8"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  dp x</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  use x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E05 @ s3  drop 後使用</text>
+<line x1="24" y1="260" x2="64" y2="260" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="264" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="260" x2="280" y2="260" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="264" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="260" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="264" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="286" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="306" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="326" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="346" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r06_emove">
+<figcaption><a href="examples/r06_emove.cl">r06_emove</a> · emove</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r06_emove.cl</text>
+<line x1="300" y1="70" x2="300" y2="230" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="150" rx="234" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r06</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#94a3b8"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  mv x</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  use x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E06 @ s3  move 後使用 (~ E0382)</text>
+<line x1="24" y1="260" x2="64" y2="260" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="264" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="260" x2="280" y2="260" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="264" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="260" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="264" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="286" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="306" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="326" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="346" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r07_eloanmove">
+<figcaption><a href="examples/r07_eloanmove.cl">r07_eloanmove</a> · eloanmove</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="448" viewBox="0 0 860 448" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 2 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r07_eloanmove.cl</text>
+<line x1="300" y1="70" x2="300" y2="284" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="177" rx="234" ry="115" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r07</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#60a5fa"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;x</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  mv x</text>
+<circle cx="300" cy="258" r="5" fill="#ef4444"/>
+<circle cx="300" cy="258" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  use a</text>
+<path d="M 300 150 C 384 150, 384 258, 300 258" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="208" fill="#3b82f6" font-size="11">a : &amp; x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E07 @ s3  借用活躍期間 move 被借者 (~ E0505)</text>
+<text x="486" y="79" fill="#fca5a5" font-size="11">E06 @ s4  move 後使用 (~ E0382)</text>
+<line x1="24" y1="314" x2="64" y2="314" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="318" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="314" x2="280" y2="314" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="318" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="314" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="318" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="340" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="360" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="380" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="400" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r08_eloandrop">
+<figcaption><a href="examples/r08_eloandrop.cl">r08_eloandrop</a> · eloandrop</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="448" viewBox="0 0 860 448" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 2 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r08_eloandrop.cl</text>
+<line x1="300" y1="70" x2="300" y2="284" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="177" rx="234" ry="115" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r08</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#60a5fa"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;x</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  dp x</text>
+<circle cx="300" cy="258" r="5" fill="#ef4444"/>
+<circle cx="300" cy="258" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  use a</text>
+<path d="M 300 150 C 384 150, 384 258, 300 258" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="208" fill="#3b82f6" font-size="11">a : &amp; x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E08 @ s3  借用活躍期間 drop 被借者</text>
+<text x="486" y="79" fill="#fca5a5" font-size="11">E05 @ s4  drop 後使用</text>
+<line x1="24" y1="314" x2="64" y2="314" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="318" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="314" x2="280" y2="314" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="318" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="314" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="318" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="340" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="360" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="380" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="400" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r09_erefuse">
+<figcaption><a href="examples/r09_erefuse.cl">r09_erefuse</a> · erefuse</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="502" viewBox="0 0 860 502" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r09_erefuse.cl</text>
+<line x1="300" y1="70" x2="300" y2="338" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="204" rx="234" ry="142" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r09</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#f87171"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;mut x</text>
+<circle cx="300" cy="204" r="5" fill="#60a5fa"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  let b = &amp;a</text>
+<circle cx="300" cy="258" r="5" fill="#ef4444"/>
+<circle cx="300" cy="258" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  use a</text>
+<circle cx="300" cy="312" r="5" fill="#94a3b8"/>
+<text x="286" y="316" fill="#cbd5e1" font-size="12" text-anchor="end">s5  use b</text>
+<path d="M 300 150 C 384 150, 384 312, 300 312" fill="none" stroke="#ef4444" stroke-width="3.5"/>
+<text x="371" y="235" fill="#ef4444" font-size="11">a : &amp;mut x</text>
+<path d="M 300 204 C 384 204, 384 312, 300 312" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="262" fill="#3b82f6" font-size="11">b : &amp; a</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E09 @ s4  別名層衝突: 參考 t 使用期間, t 自身被借用活躍 (~ E0502/E</text>
+<line x1="24" y1="368" x2="64" y2="368" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="372" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="368" x2="280" y2="368" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="372" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="368" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="372" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="394" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="414" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="434" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="454" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r10_ereturn">
+<figcaption><a href="examples/r10_ereturn.cl">r10_ereturn</a> · ereturn</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r10_ereturn.cl</text>
+<line x1="300" y1="70" x2="300" y2="230" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="150" rx="234" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r10</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#60a5fa"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;x</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  ret a</text>
+<path d="M 300 150 C 384 150, 384 204, 300 204" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="181" fill="#3b82f6" font-size="11">a : &amp; x</text>
+<line x1="300" y1="192" x2="300" y2="52" stroke="#ef4444" stroke-width="2" stroke-dasharray="5 4"/>
+<polygon points="300,40 295,52 305,52" fill="#ef4444"/>
+<text x="310" y="74" fill="#fca5a5" font-size="11">→ 呼叫者 (弧逸出作用域圓)</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E10 @ s3  回傳參考之被借者不活得比呼叫者久 (~ E0106)</text>
+<line x1="24" y1="260" x2="64" y2="260" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="264" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="260" x2="280" y2="260" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="264" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="260" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="264" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="286" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="306" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="326" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="346" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r11_eimmut">
+<figcaption><a href="examples/r11_eimmut.cl">r11_eimmut</a> · eimmut</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="340" viewBox="0 0 860 340" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r11_eimmut.cl</text>
+<line x1="300" y1="70" x2="300" y2="176" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="123" rx="234" ry="61" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r11</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let imm x</text>
+<circle cx="300" cy="150" r="5" fill="#ef4444"/>
+<circle cx="300" cy="150" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  set x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E11 @ s2  寫入不可變地方 (~ E0384)</text>
+<line x1="24" y1="206" x2="64" y2="206" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="210" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="206" x2="280" y2="206" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="210" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="206" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="210" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="232" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="252" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="272" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="292" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r12_enotmut">
+<figcaption><a href="examples/r12_enotmut.cl">r12_enotmut</a> · enotmut</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r12_enotmut.cl</text>
+<line x1="300" y1="70" x2="300" y2="230" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="150" rx="234" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r12</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let imm x</text>
+<circle cx="300" cy="150" r="5" fill="#f87171"/>
+<circle cx="300" cy="150" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;mut x</text>
+<circle cx="300" cy="204" r="5" fill="#94a3b8"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  use a</text>
+<path d="M 300 150 C 384 150, 384 204, 300 204" fill="none" stroke="#ef4444" stroke-width="3.5"/>
+<text x="371" y="181" fill="#ef4444" font-size="11">a : &amp;mut x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E12 @ s2  對不可變地方作 mut 出借 (~ E0596)</text>
+<line x1="24" y1="260" x2="64" y2="260" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="264" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="260" x2="280" y2="260" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="264" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="260" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="264" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="286" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="306" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="326" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="346" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r13_eassignsh">
+<figcaption><a href="examples/r13_eassignsh.cl">r13_eassignsh</a> · eassignsh</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r13_eassignsh.cl</text>
+<line x1="300" y1="70" x2="300" y2="230" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="150" rx="234" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r13</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#60a5fa"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;x</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  set *a</text>
+<path d="M 300 150 C 384 150, 384 204, 300 204" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="181" fill="#3b82f6" font-size="11">a : &amp; x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E13 @ s3  經共享參考寫入 (~ E0594)</text>
+<line x1="24" y1="260" x2="64" y2="260" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="264" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="260" x2="280" y2="260" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="264" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="260" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="264" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="286" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="306" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="326" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="346" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r14_emoveout">
+<figcaption><a href="examples/r14_emoveout.cl">r14_emoveout</a> · emoveout</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r14_emoveout.cl</text>
+<line x1="300" y1="70" x2="300" y2="230" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="150" rx="234" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r14</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#60a5fa"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;x</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  mv *a</text>
+<path d="M 300 150 C 384 150, 384 204, 300 204" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="181" fill="#3b82f6" font-size="11">a : &amp; x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E14 @ s3  經參考移出 (~ E0507)</text>
+<line x1="24" y1="260" x2="64" y2="260" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="264" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="260" x2="280" y2="260" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="264" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="260" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="264" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="286" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="306" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="326" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="346" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r15_etemp">
+<figcaption><a href="examples/r15_etemp.cl">r15_etemp</a> · etemp</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="448" viewBox="0 0 860 448" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r15_etemp.cl</text>
+<line x1="300" y1="70" x2="300" y2="284" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="177" rx="234" ry="115" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r15</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  tmp t</text>
+<circle cx="300" cy="150" r="5" fill="#60a5fa"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;t</text>
+<circle cx="300" cy="204" r="5" fill="#94a3b8"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  let x</text>
+<circle cx="300" cy="258" r="5" fill="#ef4444"/>
+<circle cx="300" cy="258" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  use a</text>
+<path d="M 300 150 C 384 150, 384 258, 300 258" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="208" fill="#3b82f6" font-size="11">a : &amp; t</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E15 @ s4  暫存借用被非緊鄰陳述使用 (~ E0716 保守)</text>
+<line x1="24" y1="314" x2="64" y2="314" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="318" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="314" x2="280" y2="314" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="318" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="314" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="318" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="340" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="360" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="380" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="400" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r16_eescape">
+<figcaption><a href="examples/r16_eescape.cl">r16_eescape</a> · eescape</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="448" viewBox="0 0 860 448" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r16_eescape.cl</text>
+<line x1="300" y1="70" x2="300" y2="284" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="177" rx="234" ry="115" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r16</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  slot s</text>
+<circle cx="300" cy="150" r="5" fill="#94a3b8"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let y</text>
+<circle cx="300" cy="204" r="5" fill="#60a5fa"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  let a = &amp;y</text>
+<circle cx="300" cy="258" r="5" fill="#ef4444"/>
+<circle cx="300" cy="258" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  store s = a</text>
+<path d="M 300 204 C 384 204, 384 258, 300 258" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="235" fill="#3b82f6" font-size="11">a : &amp; y</text>
+<line x1="300" y1="246" x2="300" y2="52" stroke="#ef4444" stroke-width="2" stroke-dasharray="5 4"/>
+<polygon points="300,40 295,52 305,52" fill="#ef4444"/>
+<text x="310" y="74" fill="#fca5a5" font-size="11">→ 呼叫者 (弧逸出作用域圓)</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E16 @ s4  把指向局部的參考存入槽 (~ E0521)</text>
+<line x1="24" y1="314" x2="64" y2="314" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="318" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="314" x2="280" y2="314" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="318" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="314" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="318" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="340" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="360" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="380" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="400" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r17_estoretemp">
+<figcaption><a href="examples/r17_estoretemp.cl">r17_estoretemp</a> · estoretemp</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="448" viewBox="0 0 860 448" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 2 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r17_estoretemp.cl</text>
+<line x1="300" y1="70" x2="300" y2="284" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="177" rx="234" ry="115" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r17</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  slot s</text>
+<circle cx="300" cy="150" r="5" fill="#94a3b8"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  tmp t</text>
+<circle cx="300" cy="204" r="5" fill="#60a5fa"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  let a = &amp;t</text>
+<circle cx="300" cy="258" r="5" fill="#ef4444"/>
+<circle cx="300" cy="258" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  store s = a</text>
+<path d="M 300 204 C 384 204, 384 258, 300 258" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="235" fill="#3b82f6" font-size="11">a : &amp; t</text>
+<line x1="300" y1="246" x2="300" y2="52" stroke="#ef4444" stroke-width="2" stroke-dasharray="5 4"/>
+<polygon points="300,40 295,52 305,52" fill="#ef4444"/>
+<text x="310" y="74" fill="#fca5a5" font-size="11">→ 呼叫者 (弧逸出作用域圓)</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E16 @ s4  把指向局部的參考存入槽 (~ E0521)</text>
+<text x="486" y="79" fill="#fca5a5" font-size="11">E17 @ s4  把指向暫存的參考存入槽 (~ E0716)</text>
+<line x1="24" y1="314" x2="64" y2="314" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="318" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="314" x2="280" y2="314" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="318" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="314" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="318" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="340" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="360" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="380" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="400" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r18_ebranchmove">
+<figcaption><a href="examples/r18_ebranchmove.cl">r18_ebranchmove</a> · ebranchmove</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 2 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r18_ebranchmove.cl</text>
+<line x1="300" y1="70" x2="300" y2="230" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="150" rx="234" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r18</text>
+<ellipse cx="300" cy="150" rx="200" ry="34" fill="none" stroke="#0ea5e9" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="109" fill="#0ea5e9" font-size="11" text-anchor="middle">if</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#94a3b8"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  mv x</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  use x</text>
+<path d="M 290 150 C 248 150, 248 204, 290 204" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="3 4"/>
+<circle cx="300" cy="204" r="8" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="3 3"/>
+<text x="244" y="180" fill="#f59e0b" font-size="10" text-anchor="end">可能活 E18</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E06 @ s3  move 後使用 (~ E0382)</text>
+<text x="486" y="79" fill="#fca5a5" font-size="11">E18 @ s3  if 分支內 move 後於分支外使用 (~ E0382)</text>
+<line x1="24" y1="260" x2="64" y2="260" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="264" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="260" x2="280" y2="260" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="264" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="260" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="264" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="286" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="306" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="326" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="346" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r19_edoubledrop">
+<figcaption><a href="examples/r19_edoubledrop.cl">r19_edoubledrop</a> · edoubledrop</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r19_edoubledrop.cl</text>
+<line x1="300" y1="70" x2="300" y2="230" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="150" rx="234" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r19</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#94a3b8"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  dp x</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  dp x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E19 @ s3  重複 drop (無中間重初始化)</text>
+<line x1="24" y1="260" x2="64" y2="260" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="264" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="260" x2="280" y2="260" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="264" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="260" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="264" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="286" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="306" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="326" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="346" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r20_edropmoved">
+<figcaption><a href="examples/r20_edropmoved.cl">r20_edropmoved</a> · edropmoved</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r20_edropmoved.cl</text>
+<line x1="300" y1="70" x2="300" y2="230" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="150" rx="234" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r20</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#94a3b8"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  mv x</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  dp x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E20 @ s3  move 後再 drop (~ E0382)</text>
+<line x1="24" y1="260" x2="64" y2="260" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="264" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="260" x2="280" y2="260" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="264" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="260" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="264" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="286" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="306" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="326" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="346" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r21_ealiascyc">
+<figcaption><a href="examples/r21_ealiascyc.cl">r21_ealiascyc</a> · ealiascyc</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r21_ealiascyc.cl</text>
+<line x1="300" y1="70" x2="300" y2="230" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="150" rx="234" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r21</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  slot s</text>
+<circle cx="300" cy="150" r="5" fill="#60a5fa"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;s</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  store s = a</text>
+<path d="M 300 150 C 384 150, 384 204, 300 204" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="181" fill="#3b82f6" font-size="11">a : &amp; s</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E21 @ s3  存入造成別名環 (槽指向自身)</text>
+<line x1="24" y1="260" x2="64" y2="260" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="264" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="260" x2="280" y2="260" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="264" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="260" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="264" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="286" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="306" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="326" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="346" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r22_eimmfield">
+<figcaption><a href="examples/r22_eimmfield.cl">r22_eimmfield</a> · eimmfield</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="340" viewBox="0 0 860 340" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r22_eimmfield.cl</text>
+<line x1="300" y1="70" x2="300" y2="176" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="123" rx="234" ry="61" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r22</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let imm x</text>
+<circle cx="300" cy="150" r="5" fill="#ef4444"/>
+<circle cx="300" cy="150" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  set x.f</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E22 @ s2  寫入不可變地方之子字段 (~ E0594)</text>
+<line x1="24" y1="206" x2="64" y2="206" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="210" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="206" x2="280" y2="206" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="210" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="206" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="210" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="232" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="252" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="272" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="292" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r23_enotmutfield">
+<figcaption><a href="examples/r23_enotmutfield.cl">r23_enotmutfield</a> · enotmutfield</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r23_enotmutfield.cl</text>
+<line x1="300" y1="70" x2="300" y2="230" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="150" rx="234" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r23</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let imm x</text>
+<circle cx="300" cy="150" r="5" fill="#f87171"/>
+<circle cx="300" cy="150" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;mut x.f</text>
+<circle cx="300" cy="204" r="5" fill="#94a3b8"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  use a</text>
+<path d="M 300 150 C 384 150, 384 204, 300 204" fill="none" stroke="#ef4444" stroke-width="3.5"/>
+<text x="371" y="181" fill="#ef4444" font-size="11">a : &amp;mut x.f</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E23 @ s2  對不可變字段作 mut 出借 (~ E0596)</text>
+<line x1="24" y1="260" x2="64" y2="260" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="264" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="260" x2="280" y2="260" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="264" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="260" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="264" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="286" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="306" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="326" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="346" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r24_eelsejoin">
+<figcaption><a href="examples/r24_eelsejoin.cl">r24_eelsejoin</a> · eelsejoin</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="448" viewBox="0 0 860 448" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 2 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r24_eelsejoin.cl</text>
+<line x1="300" y1="70" x2="300" y2="284" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="177" rx="234" ry="115" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r24</text>
+<ellipse cx="300" cy="150" rx="200" ry="34" fill="none" stroke="#0ea5e9" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="109" fill="#0ea5e9" font-size="11" text-anchor="middle">if</text>
+<ellipse cx="300" cy="204" rx="200" ry="34" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="163" fill="#f59e0b" font-size="11" text-anchor="middle">else</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#94a3b8"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  set x</text>
+<circle cx="300" cy="204" r="5" fill="#94a3b8"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  mv x</text>
+<circle cx="300" cy="258" r="5" fill="#ef4444"/>
+<circle cx="300" cy="258" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  use x</text>
+<path d="M 290 204 C 248 204, 248 258, 290 258" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-dasharray="3 4"/>
+<circle cx="300" cy="258" r="8" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="3 3"/>
+<text x="244" y="234" fill="#f59e0b" font-size="10" text-anchor="end">可能活 E24</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E06 @ s4  move 後使用 (~ E0382)</text>
+<text x="486" y="79" fill="#fca5a5" font-size="11">E24 @ s4  else 分支內 move 後於分支外使用 (~ E0382)</text>
+<line x1="24" y1="314" x2="64" y2="314" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="318" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="314" x2="280" y2="314" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="318" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="314" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="318" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="340" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="360" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="380" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="400" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r25_ecallmut">
+<figcaption><a href="examples/r25_ecallmut.cl">r25_ecallmut</a> · ecallmut</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="448" viewBox="0 0 860 448" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r25_ecallmut.cl</text>
+<line x1="300" y1="70" x2="300" y2="284" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="177" rx="234" ry="115" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r25</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#f87171"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;mut x</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  call f(x)</text>
+<circle cx="300" cy="258" r="5" fill="#94a3b8"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  use a</text>
+<path d="M 300 150 C 384 150, 384 258, 300 258" fill="none" stroke="#ef4444" stroke-width="3.5"/>
+<text x="371" y="208" fill="#ef4444" font-size="11">a : &amp;mut x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E25 @ s3  呼叫讀取 mut 借用活躍之路徑 (~ E0503)</text>
+<line x1="24" y1="314" x2="64" y2="314" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="318" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="314" x2="280" y2="314" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="318" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="314" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="318" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="340" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="360" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="380" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="400" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r26_ecallmove">
+<figcaption><a href="examples/r26_ecallmove.cl">r26_ecallmove</a> · ecallmove</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r26_ecallmove.cl</text>
+<line x1="300" y1="70" x2="300" y2="230" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="150" rx="234" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r26</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#94a3b8"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  callmv take(x)</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  use x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E26 @ s3  呼叫消耗後再使用 (~ E0382)</text>
+<line x1="24" y1="260" x2="64" y2="260" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="264" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="260" x2="280" y2="260" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="264" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="260" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="264" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="286" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="306" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="326" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="346" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r27_ecalloan">
+<figcaption><a href="examples/r27_ecalloan.cl">r27_ecalloan</a> · ecalloan</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="448" viewBox="0 0 860 448" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 2 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r27_ecalloan.cl</text>
+<line x1="300" y1="70" x2="300" y2="284" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="177" rx="234" ry="115" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r27</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let x</text>
+<circle cx="300" cy="150" r="5" fill="#60a5fa"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;x</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  callmv take(x)</text>
+<circle cx="300" cy="258" r="5" fill="#ef4444"/>
+<circle cx="300" cy="258" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="262" fill="#cbd5e1" font-size="12" text-anchor="end">s4  use a</text>
+<path d="M 300 150 C 384 150, 384 258, 300 258" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="208" fill="#3b82f6" font-size="11">a : &amp; x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E27 @ s3  借用活躍期間呼叫消耗被借者 (~ E0505)</text>
+<text x="486" y="79" fill="#fca5a5" font-size="11">E26 @ s4  呼叫消耗後再使用 (~ E0382)</text>
+<line x1="24" y1="314" x2="64" y2="314" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="318" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="314" x2="280" y2="314" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="318" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="314" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="318" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="340" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="360" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="380" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="400" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r28_erettemp">
+<figcaption><a href="examples/r28_erettemp.cl">r28_erettemp</a> · erettemp</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="394" viewBox="0 0 860 394" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r28_erettemp.cl</text>
+<line x1="300" y1="70" x2="300" y2="230" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="150" rx="234" ry="88" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r28</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  tmp t</text>
+<circle cx="300" cy="150" r="5" fill="#60a5fa"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  let a = &amp;t</text>
+<circle cx="300" cy="204" r="5" fill="#ef4444"/>
+<circle cx="300" cy="204" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="208" fill="#cbd5e1" font-size="12" text-anchor="end">s3  ret a</text>
+<path d="M 300 150 C 384 150, 384 204, 300 204" fill="none" stroke="#3b82f6" stroke-width="2"/>
+<text x="371" y="181" fill="#3b82f6" font-size="11">a : &amp; t</text>
+<line x1="300" y1="192" x2="300" y2="52" stroke="#ef4444" stroke-width="2" stroke-dasharray="5 4"/>
+<polygon points="300,40 295,52 305,52" fill="#ef4444"/>
+<text x="310" y="74" fill="#fca5a5" font-size="11">→ 呼叫者 (弧逸出作用域圓)</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E28 @ s3  回傳指向暫存的參考 (~ E0515)</text>
+<line x1="24" y1="260" x2="64" y2="260" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="264" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="260" x2="280" y2="260" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="264" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="260" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="264" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="286" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="306" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="326" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="346" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r29_euninit">
+<figcaption><a href="examples/r29_euninit.cl">r29_euninit</a> · euninit</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="340" viewBox="0 0 860 340" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r29_euninit.cl</text>
+<line x1="300" y1="70" x2="300" y2="176" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="123" rx="234" ry="61" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r29</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let hole x</text>
+<circle cx="300" cy="150" r="5" fill="#ef4444"/>
+<circle cx="300" cy="150" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  use x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E29 @ s2  使用尚未初始化的洞 (~ E0381)</text>
+<line x1="24" y1="206" x2="64" y2="206" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="210" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="206" x2="280" y2="206" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="210" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="206" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="210" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="232" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="252" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="272" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="292" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r30_euninitret">
+<figcaption><a href="examples/r30_euninitret.cl">r30_euninitret</a> · euninitret</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="340" viewBox="0 0 860 340" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r30_euninitret.cl</text>
+<line x1="300" y1="70" x2="300" y2="176" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="123" rx="234" ry="61" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r30</text>
+<circle cx="300" cy="96" r="5" fill="#94a3b8"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let hole x</text>
+<circle cx="300" cy="150" r="5" fill="#ef4444"/>
+<circle cx="300" cy="150" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  mv x</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E30 @ s2  移出尚未初始化的洞 (~ E0381)</text>
+<line x1="24" y1="206" x2="64" y2="206" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="210" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="206" x2="280" y2="206" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="210" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="206" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="210" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="232" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="252" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="272" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="292" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r31_eparamimmut">
+<figcaption><a href="examples/r31_eparamimmut.cl">r31_eparamimmut</a> · eparamimmut</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="286" viewBox="0 0 860 286" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r31_eparamimmut.cl</text>
+<line x1="300" y1="70" x2="300" y2="122" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="96" rx="234" ry="34" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r31</text>
+<circle cx="300" cy="96" r="5" fill="#ef4444"/>
+<circle cx="300" cy="96" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  set p</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E31 @ s1  寫入不可變參數 (~ E0594)</text>
+<line x1="24" y1="152" x2="64" y2="152" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="156" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="152" x2="280" y2="152" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="156" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="152" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="156" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="178" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="198" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="218" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="238" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+<figure class="card" id="r32_eparamnotmut">
+<figcaption><a href="examples/r32_eparamnotmut.cl">r32_eparamnotmut</a> · eparamnotmut</figcaption>
+<div class="viz"><svg xmlns="http://www.w3.org/2000/svg" width="860" height="340" viewBox="0 0 860 340" font-family="monospace">
+<rect width="100%" height="100%" fill="#0f172a"/>
+<rect x="12" y="10" width="836" height="30" rx="6" fill="#7f1d1d"/>
+<text x="24" y="30" fill="#fecaca" font-size="15" font-weight="bold">✗ FAIL — 1 個錯誤  ·  圓示 Chord Diagram · 弦律 v0.5 · liveness=nll</text>
+<text x="840" y="30" fill="#64748b" font-size="12" text-anchor="end">r32_eparamnotmut.cl</text>
+<line x1="300" y1="70" x2="300" y2="176" stroke="#334155" stroke-width="2"/>
+<ellipse cx="300" cy="123" rx="234" ry="61" fill="none" stroke="#64748b" stroke-width="1.5" stroke-dasharray="7 5"/>
+<text x="300" y="55" fill="#64748b" font-size="11" text-anchor="middle">fn r32</text>
+<circle cx="300" cy="96" r="5" fill="#f87171"/>
+<circle cx="300" cy="96" r="10" fill="none" stroke="#ef4444" stroke-width="2"/>
+<text x="286" y="100" fill="#cbd5e1" font-size="12" text-anchor="end">s1  let a = &amp;mut p</text>
+<circle cx="300" cy="150" r="5" fill="#94a3b8"/>
+<text x="286" y="154" fill="#cbd5e1" font-size="12" text-anchor="end">s2  use a</text>
+<path d="M 300 96 C 384 96, 384 150, 300 150" fill="none" stroke="#ef4444" stroke-width="3.5"/>
+<text x="371" y="127" fill="#ef4444" font-size="11">a : &amp;mut p</text>
+<text x="486" y="62" fill="#fca5a5" font-size="11">E32 @ s1  對不可變參數作 mut 出借 (~ E0596)</text>
+<line x1="24" y1="206" x2="64" y2="206" stroke="#3b82f6" stroke-width="2"/>
+<text x="70" y="210" fill="#94a3b8" font-size="11">sh 共享借用弧 (可共存)</text>
+<line x1="240" y1="206" x2="280" y2="206" stroke="#ef4444" stroke-width="3.5"/>
+<text x="286" y="210" fill="#94a3b8" font-size="11">mut 排他借用弧 (紅弧)</text>
+<ellipse cx="470" cy="206" rx="24" ry="10" fill="none" stroke="#64748b" stroke-dasharray="5 4"/>
+<text x="500" y="210" fill="#94a3b8" font-size="11">作用域圓 (區域; 巢狀 = 同心圓)</text>
+<text x="24" y="232" fill="#e2e8f0" font-size="12">圓示法則 ① 紅弧孤立: mut 弧之弧跨內不得含他弧端點, 且不得與他弧弦交越 (交越處標 ✕)</text>
+<text x="24" y="252" fill="#e2e8f0" font-size="12">圓示法則 ② 弧在圓內: 弧端點須落在被借者之作用域圓內; 回傳者之被借者須活得比呼叫者 (ROOT) 久</text>
+<text x="24" y="272" fill="#e2e8f0" font-size="12">圓示法則 ③ 點序守紀: move/drop 之後的點不得再讀同路徑; 紅弧跨內不得有寫/移/呼叫消耗</text>
+<text x="24" y="292" fill="#94a3b8" font-size="11">虛線弧 = NLL 空洞 (點 ∉ I(a)); 琥珀虛線 = 可能活 (E18/E24); ✕ 僅標 eclash 證明</text>
+</svg></div>
+</figure>
+</main>
+</body>
+</html>
